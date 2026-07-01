@@ -1,0 +1,12 @@
+2026-06-27 19:12:44,460 - HDCTI - INFO - ### model configuration ###
+2026-06-27 19:12:44,460 - HDCTI - INFO - ; datapath=./dataset/Symmap/one.txt
+2026-06-27 19:12:44,460 - HDCTI - INFO - datapath=./dataset/TCMsuite/ONE_indices.txt
+2026-06-27 19:12:44,460 - HDCTI - INFO - ratings.setup=-columns 0 1 2
+2026-06-27 19:12:44,460 - HDCTI - INFO - model.name=HDCTI
+2026-06-27 19:12:44,460 - HDCTI - INFO - evaluation.setup=-cv 5
+2026-06-27 19:12:44,460 - HDCTI - INFO - num.factors=64
+2026-06-27 19:12:44,460 - HDCTI - INFO - num.max.epoch=50
+2026-06-27 19:12:44,460 - HDCTI - INFO - batch_size=2000
+2026-06-27 19:12:44,460 - HDCTI - INFO - learnRate=-init 0.005 -max 1
+2026-06-27 19:12:44,460 - HDCTI - INFO - reg.lambda=-u 0.001 -i 0.001 -b 0.2 -s 0.2
+2026-06-27 19:12:44,460 - HDCTI - INFO - output.setup=on -dir ./results/

@@ -1,0 +1,17 @@
+name: HDCTI
+channels:
+  - defaults
+dependencies:
+  - python=3.8
+  - pip
+  - numpy=1.19.5
+  - pandas=1.1.5
+  - scipy=1.7.3
+  - scikit-learn=0.24.2
+  - matplotlib=3.3.4
+  - mkl-service
+  - networkx=2.6.3
+  - pip:
+      - tensorflow==2.6.2
+      - keras==2.6.0
+      - protobuf==3.19.4
