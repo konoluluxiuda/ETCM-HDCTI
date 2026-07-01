@@ -62,8 +62,9 @@ class FileIO(object):
 
                 trainingData.append([herbId, diseaseId, float(rating)])
 
-        #
-        with open('./dataset/TCMsuite/ZERO_indices.txt') as f:
+        dataset_dir = os.path.dirname(os.path.abspath(file))
+        zero_path = os.path.join(dataset_dir, 'ZERO_indices.txt')
+        with open(zero_path) as f:
             ratings = f.readlines()
         # ignore the headline
         if ratingConfig.contains('-header'):
@@ -73,7 +74,12 @@ class FileIO(object):
         delim = ' |,|\t'
         if ratingConfig.contains('-delim'):
             delim=ratingConfig['-delim']
-        new_ratings=random.sample(ratings,43669)
+        negative_count = len(testData if bTest else trainingData)
+        if negative_count > len(ratings):
+            print('The negative file %s has only %d rows, but %d negatives are required.' %
+                  (zero_path, len(ratings), negative_count))
+            exit(-1)
+        new_ratings=random.sample(ratings,negative_count)
 
 
         # with open('./dataset/TCMSP/zero1.txt') as f:
@@ -134,7 +140,6 @@ class FileIO(object):
             for line in f:
                 herbList.append(line.strip().split()[0])
         return herbList
-
 
 
 

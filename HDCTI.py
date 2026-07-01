@@ -173,6 +173,17 @@ class HDCTI(herbRecommender):
 
         num_heads = 2  # Number of attention heads
         head_dim = self.emb_size // num_heads  # Dimension of each attention head
+        attention_max_nodes = 2000
+        if self.config.contains('attention.max.nodes'):
+            attention_max_nodes = int(self.config['attention.max.nodes'])
+        use_compound_full_attention = self.num_compounds <= attention_max_nodes
+        use_protein_full_attention = self.num_proteins <= attention_max_nodes
+        if not use_compound_full_attention:
+            print('Skipping compound full self-attention: nodes=%d > attention.max.nodes=%d' %
+                  (self.num_compounds, attention_max_nodes))
+        if not use_protein_full_attention:
+            print('Skipping protein full self-attention: nodes=%d > attention.max.nodes=%d' %
+                  (self.num_proteins, attention_max_nodes))
 
 
 
@@ -218,6 +229,8 @@ class HDCTI(herbRecommender):
                                                                        name='g_W_b_%d_1' % (i + 1))
 
         def multi_head_attention_compound(embeddings, attention_weights, num_heads, head_dim):
+            if not use_compound_full_attention:
+                return embeddings
             attention_heads = []
 
             for h in range(num_heads):
@@ -236,6 +249,8 @@ class HDCTI(herbRecommender):
             return concat_attention
 
         def multi_head_attention_protein(embeddings, attention_weights, num_heads, head_dim):
+            if not use_protein_full_attention:
+                return embeddings
             attention_heads = []
 
             for h in range(num_heads):

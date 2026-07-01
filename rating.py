@@ -3,6 +3,7 @@ from util.config import ModelConf,OptionConf
 import random
 from collections import defaultdict
 import pandas as pd
+import os
 class Rating(object):
     'data access control'
     def __init__(self,config,trainingSet, testSet):
@@ -62,16 +63,15 @@ class Rating(object):
         # plist = P[0].unique()
         # dlist = D[0].unique()
         # Symmap
-        # TCM-suite
-        HC = pd.read_csv('./dataset/TCMsuite/H_C.txt', sep='\t', header=None, dtype={0: str, 1: str})
-        CP = pd.read_csv('./dataset/TCMsuite/C_P.txt', sep='\t', header=None, dtype={0: str, 1: str})
-        PD = pd.read_csv('./dataset/TCMsuite/P_D.txt', sep='\t', header=None, dtype={0: str, 1: str})
-        HD = pd.read_csv('./dataset/TCMsuite/H_D.txt', sep='\t', header=None, dtype={0: str, 1: str})
+        dataset_dir = os.path.dirname(os.path.abspath(self.config['datapath']))
+        HC = pd.read_csv(os.path.join(dataset_dir, 'H_C.txt'), sep='\t', header=None, dtype={0: str, 1: str})
+        CP = pd.read_csv(os.path.join(dataset_dir, 'C_P.txt'), sep='\t', header=None, dtype={0: str, 1: str})
+        PD = pd.read_csv(os.path.join(dataset_dir, 'P_D.txt'), sep='\t', header=None, dtype={0: str, 1: str})
+        HD = pd.read_csv(os.path.join(dataset_dir, 'H_D.txt'), sep='\t', header=None, dtype={0: str, 1: str})
         hlist = HC[0].unique()
         clist = HC[1].unique()
         plist = CP[1].unique()
         dlist = PD[1].unique()
-        # # # TCM-suite
         self.Hlist=hlist
         self.Dlist=dlist
         self.Clist=clist

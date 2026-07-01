@@ -3,6 +3,7 @@ from util.dataSplit import *
 from multiprocessing import Process, Manager
 from util.io import FileIO
 from time import strftime, localtime, time
+import os
 # import pandas as pd
 import numpy as np
 import mkl
@@ -47,7 +48,8 @@ class HDR(object):
                 mDict = manager.dict()
             i = 1
             tasks = []
-            for train, test in DataSplit.crossValidation(self.trainingData, k):
+            dataset_dir = os.path.dirname(os.path.abspath(self.config['datapath']))
+            for train, test in DataSplit.crossValidation(self.trainingData, k, path=dataset_dir):
                 fold = '[' + str(i) + ']'
                 recommender = self.config['model.name'] + "(self.config,train,test,fold)"
                 if not use_multiprocessing:
