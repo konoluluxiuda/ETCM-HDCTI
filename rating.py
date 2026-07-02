@@ -4,6 +4,44 @@ import random
 from collections import defaultdict
 import pandas as pd
 import os
+
+
+RELATION_FILE_CANDIDATES = {
+    'H_C': ('H_C.txt', 'herb-compound.txt', 'HI.txt'),
+    'C_P': ('C_P.txt', 'compound-protein.txt', 'IT.txt'),
+    'P_D': ('P_D.txt', 'target-disease.txt', 'TD.txt'),
+    'H_D': ('H_D.txt', 'drug-disease.txt', 'HD.txt'),
+}
+
+
+def resolve_dataset_file(dataset_dir, relation_name):
+    for filename in RELATION_FILE_CANDIDATES[relation_name]:
+        path = os.path.join(dataset_dir, filename)
+        if os.path.exists(path):
+            return path
+    raise FileNotFoundError(
+        'Cannot find %s relation file in %s. Tried: %s' %
+        (relation_name, dataset_dir, ', '.join(RELATION_FILE_CANDIDATES[relation_name]))
+    )
+
+
+def read_relation_file(dataset_dir, relation_name):
+    path = resolve_dataset_file(dataset_dir, relation_name)
+    return pd.read_csv(path, sep=r'\s+', header=None, dtype={0: str, 1: str}, engine='python')
+
+
+def unique_values(*values):
+    seen = set()
+    ordered = []
+    for value_list in values:
+        for value in value_list:
+            value = str(value)
+            if value not in seen:
+                seen.add(value)
+                ordered.append(value)
+    return ordered
+
+
 class Rating(object):
     'data access control'
     def __init__(self,config,trainingSet, testSet):
@@ -64,14 +102,18 @@ class Rating(object):
         # dlist = D[0].unique()
         # Symmap
         dataset_dir = os.path.dirname(os.path.abspath(self.config['datapath']))
-        HC = pd.read_csv(os.path.join(dataset_dir, 'H_C.txt'), sep='\t', header=None, dtype={0: str, 1: str})
-        CP = pd.read_csv(os.path.join(dataset_dir, 'C_P.txt'), sep='\t', header=None, dtype={0: str, 1: str})
-        PD = pd.read_csv(os.path.join(dataset_dir, 'P_D.txt'), sep='\t', header=None, dtype={0: str, 1: str})
-        HD = pd.read_csv(os.path.join(dataset_dir, 'H_D.txt'), sep='\t', header=None, dtype={0: str, 1: str})
-        hlist = HC[0].unique()
-        clist = HC[1].unique()
-        plist = CP[1].unique()
-        dlist = PD[1].unique()
+        HC = read_relation_file(dataset_dir, 'H_C')
+        CP = read_relation_file(dataset_dir, 'C_P')
+        PD = read_relation_file(dataset_dir, 'P_D')
+        HD = read_relation_file(dataset_dir, 'H_D')
+        train_compounds = [entry[0] for entry in trainingSet]
+        test_compounds = [entry[0] for entry in testSet]
+        train_proteins = [entry[1] for entry in trainingSet]
+        test_proteins = [entry[1] for entry in testSet]
+        hlist = unique_values(HC[0].unique(), HD[0].unique())
+        clist = unique_values(HC[1].unique(), CP[0].unique(), train_compounds, test_compounds)
+        plist = unique_values(CP[1].unique(), PD[0].unique(), train_proteins, test_proteins)
+        dlist = unique_values(PD[1].unique(), HD[1].unique())
         self.Hlist=hlist
         self.Dlist=dlist
         self.Clist=clist
