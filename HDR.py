@@ -70,16 +70,22 @@ class HDR(object):
                 if self.evaluation.contains('-p'):
                     for p in tasks:
                         p.join()
-            # compute the average error of k-fold cross validation
-            # self.measure = [dict(mDict)[i] for i in range(1, k + 1)]
+            # compute the average and standard deviation of k-fold cross validation
             self.measure = [mDict[i] for i in range(1, k + 1) if i in mDict]
             res = []
+            if not self.measure:
+                print('No fold metrics were returned.')
+                return
+            if len(self.measure) != k:
+                print('Warning: expected %d folds but received metrics from %d folds.' % (k, len(self.measure)))
             for i in range(len(self.measure[0])):
                 measure = self.measure[0][i].split(':')[0]
-                total = 0
-                for j in range(k):
-                    total += float(self.measure[j][i].split(':')[1])
-                res.append(measure + ':' + str(total / k) + '\n')
+                values = []
+                for j in range(len(self.measure)):
+                    values.append(float(self.measure[j][i].split(':')[1]))
+                mean = np.mean(values)
+                std = np.std(values, ddof=1) if len(values) > 1 else 0.0
+                res.append('%s:%.6f(±%.6f)\n' % (measure, mean, std))
             # output result
             currentTime = strftime("%Y-%m-%d %H-%M-%S", localtime(time()))
             outDir = OptionConf(self.config['output.setup'])['-dir']

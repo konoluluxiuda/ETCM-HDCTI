@@ -129,8 +129,8 @@ class HDCTI(herbRecommender):
         # 将节点的矩阵转换为 COO 格式
         node = temp2.tocoo()
         # 获取边和节点的索引
-        edge_indices = np.mat([edge.row, edge.col]).transpose()
-        node_indices = np.mat([node.row, node.col]).transpose()
+        edge_indices = np.asarray([edge.row, edge.col], dtype=np.int64).T
+        node_indices = np.asarray([node.row, node.col], dtype=np.int64).T
         # 构建稀疏张量表示边和节点
         H_e = tf.SparseTensor(edge_indices, edge.data.astype(np.float32), edge.shape)
         H_n = tf.SparseTensor(node_indices, node.data.astype(np.float32), node.shape)
@@ -150,8 +150,8 @@ class HDCTI(herbRecommender):
         # 将节点的矩阵转换为 COO 格式
         pd_node = temp2.tocoo()
         # 获取边和节点的索引
-        A_pde = np.mat([pd_edge.row, pd_edge.col]).transpose()
-        A_pdn = np.mat([pd_node.row, pd_node.col]).transpose()
+        A_pde = np.asarray([pd_edge.row, pd_edge.col], dtype=np.int64).T
+        A_pdn = np.asarray([pd_node.row, pd_node.col], dtype=np.int64).T
         # 构建稀疏张量表示边和节点
         P_e = tf.SparseTensor(A_pde, pd_edge.data.astype(np.float32), pd_edge.shape)
         P_n = tf.SparseTensor(A_pdn, pd_node.data.astype(np.float32), pd_node.shape)
@@ -173,11 +173,11 @@ class HDCTI(herbRecommender):
 
         num_heads = 2  # Number of attention heads
         head_dim = self.emb_size // num_heads  # Dimension of each attention head
-        attention_max_nodes = 2000
+        attention_max_nodes = None
         if self.config.contains('attention.max.nodes'):
             attention_max_nodes = int(self.config['attention.max.nodes'])
-        use_compound_full_attention = self.num_compounds <= attention_max_nodes
-        use_protein_full_attention = self.num_proteins <= attention_max_nodes
+        use_compound_full_attention = attention_max_nodes is None or self.num_compounds <= attention_max_nodes
+        use_protein_full_attention = attention_max_nodes is None or self.num_proteins <= attention_max_nodes
         if not use_compound_full_attention:
             print('Skipping compound full self-attention: nodes=%d > attention.max.nodes=%d' %
                   (self.num_compounds, attention_max_nodes))
@@ -379,13 +379,22 @@ class HDCTI(herbRecommender):
 
 
     def trainModel(self):
-        
-        sigmoid_output = tf.sigmoid(tf.reduce_sum(tf.multiply(self.u_embedding, self.v_embedding), 1))
-      
+        def format_duration(seconds):
+            seconds = max(0, int(seconds))
+            hours = seconds // 3600
+            minutes = (seconds % 3600) // 60
+            secs = seconds % 60
+            if hours:
+                return '%dh%02dm%02ds' % (hours, minutes, secs)
+            if minutes:
+                return '%dm%02ds' % (minutes, secs)
+            return '%ds' % secs
 
-
-        y = tf.reduce_sum(tf.multiply(self.neg_disease_embedding, tf.log(sigmoid_output)) + tf.multiply(
-            (1 - self.neg_disease_embedding), tf.log(1 - sigmoid_output)), 0)
+        logits = tf.reduce_sum(tf.multiply(self.u_embedding, self.v_embedding), 1)
+        bce_loss = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(
+            labels=self.neg_disease_embedding,
+            logits=logits
+        ))
 
         reg_loss = 0
         for key in self.weights:
@@ -393,7 +402,7 @@ class HDCTI(herbRecommender):
             reg_loss += 0.01 * tf.nn.l2_loss(self.weights[key])
         # reg_loss += self.regU * (tf.nn.l2_loss(self.final_hcedge) + tf.nn.l2_loss(self.final_pdedge))
             reg_loss += self.regU * (tf.nn.l2_loss(self.final_iembedding) + tf.nn.l2_loss(self.final_uembedding))
-        loss = -tf.reduce_sum(y) + reg_loss
+        loss = bce_loss + reg_loss
 
         optimizer = tf.train.AdamOptimizer(self.lRate)
         train = optimizer.minimize(loss)
@@ -402,14 +411,29 @@ class HDCTI(herbRecommender):
         init = tf.global_variables_initializer()
         self.sess.run(init)
 
-
+        total_batches = int(np.ceil(float(self.train_size) / self.batch_size))
+        total_steps = max(1, self.maxEpoch * total_batches)
+        train_start = time()
         for epoch in range(self.maxEpoch):
+            epoch_start = time()
             for n, batch in enumerate(self.next_batch_pairwise()):
+                batch_start = time()
                 herb_idx, i_idx, j_idx = batch
                 _, l = self.sess.run([train, loss],
                                     feed_dict={self.u_idx: herb_idx, self.neg_idx: j_idx, self.v_idx: i_idx,
                                                 self.isTraining: 1})
-                print('training:', epoch + 1, 'batch', n, 'loss:', l)
+                if not np.isfinite(l):
+                    raise ValueError('Training loss became non-finite at epoch %d batch %d: %s' % (epoch + 1, n, l))
+                elapsed = time() - train_start
+                batch_time = time() - batch_start
+                step = min(epoch * total_batches + n + 1, total_steps)
+                avg_step_time = elapsed / step
+                eta = avg_step_time * (total_steps - step)
+                print('training: %d/%d batch %d/%d loss: %s batch_time: %s elapsed: %s eta: %s' %
+                      (epoch + 1, self.maxEpoch, n + 1, total_batches, l,
+                       format_duration(batch_time), format_duration(elapsed), format_duration(eta)))
+            print('epoch %d/%d finished in %s' %
+                  (epoch + 1, self.maxEpoch, format_duration(time() - epoch_start)))
         self.u, self.i, self.weight = self.sess.run([self.final_uembedding, self.final_iembedding, self.weights],
                                                         feed_dict={self.isTraining: 0})
         currentTime = strftime("%Y-%m-%d %H-%M-%S", localtime(time()))

@@ -19,9 +19,10 @@ class ModelConf(object):
             raise IOError
         with open(file) as f:
             for ind,line in enumerate(f):
-                if line.strip()!='':
+                stripped = line.strip()
+                if stripped != '' and not stripped.startswith('#') and not stripped.startswith(';'):
                     try:
-                        key,value=line.strip().split('=')
+                        key,value=stripped.split('=')
                         self.config[key]=value
                     except ValueError:
                         print('config file is not in the correct format! Error Line:%d'%(ind))
@@ -64,5 +65,4 @@ class OptionConf(object):
 
     def contains(self,key):
         return key in self.options
-
 

@@ -1,72 +1,72 @@
-# Dataset Statistics
+# 数据集统计
 
-Generated from local files under `dataset/` on 2026-07-02.
-Large raw ETCM2.0 JSON files are summarized by file count and size only.
+根据 2026-07-02 本地 `dataset/` 目录下的文件生成。
+大型 ETCM2.0 原始 JSON 文件仅统计文件数量和总体大小。
 
-## Overview
+## 总览
 
-| Dataset | Size | H_C | C_P | P_D | H_D | ONE | ZERO |
+| 数据集 | 大小 | H_C | C_P | P_D | H_D | ONE | ZERO |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | `TCMsuite` | 42.3MB | 6,496 | 43,669 | 44,170 | 2,354,225 | 43,669 | 1,048,576 |
 | `TCMSP` | 3.4MB | 33,756 | 56,102 | 365 | 39,934 | 56,102 | 0 |
 | `Symmap` | 161.8MB | 85,172 | 37,991 | 194,558 | 382,930 | 37,991 | 6,477,695 |
 | `ETCM2.0_processed` | 34.0MB | 67,335 | 180,589 | 2,033,920 | 41,076 | 180,589 | 0 |
 | `ETCM2.0_core` | 32.7MB | 36,216 | 109,747 | 1,991,225 | 41,076 | 109,747 | 109,747 |
-| `ETCM2.0 raw JSON` | 40.2GB | - | - | - | - | - | - |
+| `ETCM2.0 原始 JSON` | 40.2GB | - | - | - | - | - | - |
 
-## ETCM2.0 Raw JSON
+## ETCM2.0 原始 JSON
 
-- Path: `dataset/ETCM2.0`
-- Size: 40.2GB
-- `etcm_herbs` JSON files: 2,076
-- `etcm_targets` JSON files: 260
-- `etcm_diseases` JSON files: 7,705
-- Raw zip: `dataset/ETCM2.0_raw.zip` (2.4GB)
+- 路径：`dataset/ETCM2.0`
+- 大小：40.2GB
+- `etcm_herbs` JSON 文件数： 2,076
+- `etcm_targets` JSON 文件数： 260
+- `etcm_diseases` JSON 文件数： 7,705
+- 原始压缩包：`dataset/ETCM2.0_raw.zip` (2.4GB)
 
 ## TCMsuite
 
-- Path: `dataset/TCMsuite`
-- Size: 42.3MB
+- 路径：`dataset/TCMsuite`
+- 大小：42.3MB
 
-### Relation Files
+### 关系文件
 
-| Relation | Unique edges | Raw rows | Malformed rows |
+| 关系 | 唯一边数 | 原始行数 | 异常行数 |
 |---|---:|---:|---:|
-| H_C (herb-compound) | 6,496 | 6,496 | 0 |
-| C_P (compound-protein) | 43,669 | 43,669 | 0 |
-| P_D (protein-disease) | 44,170 | 44,170 | 0 |
-| H_D (herb-disease) | 2,354,225 | 2,354,225 | 0 |
-| ONE (positive samples) | 43,669 | 43,669 | 0 |
-| ZERO (negative samples) | 1,048,576 | 1,048,576 | 0 |
+| H_C（中药-化合物） | 6,496 | 6,496 | 0 |
+| C_P（化合物-蛋白） | 43,669 | 43,669 | 0 |
+| P_D（蛋白-疾病） | 44,170 | 44,170 | 0 |
+| H_D（中药-疾病） | 2,354,225 | 2,354,225 | 0 |
+| ONE（正样本） | 43,669 | 43,669 | 0 |
+| ZERO（负样本） | 1,048,576 | 1,048,576 | 0 |
 
-### Entity Usage From Edges
+### 边中实际使用的实体
 
-| Entity view | Count |
+| 实体视角 | 数量 |
 |---|---:|
-| herbs_in_H_C | 1,009 |
-| compounds_in_H_C | 1,193 |
-| compounds_in_C_P | 1,187 |
-| proteins_in_C_P | 7,258 |
-| proteins_in_P_D | 2,045 |
-| diseases_in_P_D | 11,071 |
-| herbs_in_H_D | 1,008 |
-| diseases_in_H_D | 11,071 |
+| H_C 中的中药 | 1,009 |
+| H_C 中的化合物 | 1,193 |
+| C_P 中的化合物 | 1,187 |
+| C_P 中的蛋白 | 7,258 |
+| P_D 中的蛋白 | 2,045 |
+| P_D 中的疾病 | 11,071 |
+| H_D 中的中药 | 1,008 |
+| H_D 中的疾病 | 11,071 |
 
-### Connectivity / Intersection Review
+### 连通性与交集审查
 
-| Check | Count | Total | Coverage |
+| 检查项 | 数量 | 总数 | 覆盖率 |
 |---|---:|---:|---:|
-| C_P compounds with H_C support | 1,187 | 1,187 | 100.00% |
-| C_P proteins with P_D support | 2,045 | 7,258 | 28.18% |
-| P_D proteins with C_P support | 2,045 | 2,045 | 100.00% |
-| P_D diseases with H_D support | 11,071 | 11,071 | 100.00% |
-| H_D herbs with H_C support | 1,008 | 1,008 | 100.00% |
-| C_P edges with both H_C and P_D support | 25,482 | 43,669 | 58.35% |
-| ONE/ZERO overlap | 0 | 43,669 | 0.00% |
+| C_P 中有 H_C 支撑的化合物 | 1,187 | 1,187 | 100.00% |
+| C_P 中有 P_D 支撑的蛋白 | 2,045 | 7,258 | 28.18% |
+| P_D 中有 C_P 支撑的蛋白 | 2,045 | 2,045 | 100.00% |
+| P_D 中有 H_D 支撑的疾病 | 11,071 | 11,071 | 100.00% |
+| H_D 中有 H_C 支撑的中药 | 1,008 | 1,008 | 100.00% |
+| 同时有 H_C 与 P_D 支撑的 C_P 边 | 25,482 | 43,669 | 58.35% |
+| ONE/ZERO 重叠 | 0 | 43,669 | 0.00% |
 
-### Cross-validation Fold Files
+### 交叉验证折文件
 
-| File | Rows |
+| 文件 | 行数 |
 |---|---:|
 | `test_fold_0.txt` | 17,468 |
 | `test_fold_1.txt` | 17,468 |
@@ -76,207 +76,207 @@ Large raw ETCM2.0 JSON files are summarized by file count and size only.
 
 ## TCMSP
 
-- Path: `dataset/TCMSP`
-- Size: 3.4MB
+- 路径：`dataset/TCMSP`
+- 大小：3.4MB
 
-### Relation Files
+### 关系文件
 
-| Relation | Unique edges | Raw rows | Malformed rows |
+| 关系 | 唯一边数 | 原始行数 | 异常行数 |
 |---|---:|---:|---:|
-| H_C (herb-compound) | 33,756 | 33,756 | 0 |
-| C_P (compound-protein) | 56,102 | 56,102 | 0 |
-| P_D (protein-disease) | 365 | 173,476 | 0 |
-| H_D (herb-disease) | 39,934 | 40,019 | 0 |
-| ONE (positive samples) | 56,102 | 56,102 | 0 |
-| ZERO (negative samples) | 0 | 0 | 0 |
+| H_C（中药-化合物） | 33,756 | 33,756 | 0 |
+| C_P（化合物-蛋白） | 56,102 | 56,102 | 0 |
+| P_D（蛋白-疾病） | 365 | 173,476 | 0 |
+| H_D（中药-疾病） | 39,934 | 40,019 | 0 |
+| ONE（正样本） | 56,102 | 56,102 | 0 |
+| ZERO（负样本） | 0 | 0 | 0 |
 
-### Entity Usage From Edges
+### 边中实际使用的实体
 
-| Entity view | Count |
+| 实体视角 | 数量 |
 |---|---:|
-| herbs_in_H_C | 501 |
-| compounds_in_H_C | 13,655 |
-| compounds_in_C_P | 6,929 |
-| proteins_in_C_P | 1,748 |
-| proteins_in_P_D | 364 |
-| diseases_in_P_D | 321 |
-| herbs_in_H_D | 447 |
-| diseases_in_H_D | 322 |
+| H_C 中的中药 | 501 |
+| H_C 中的化合物 | 13,655 |
+| C_P 中的化合物 | 6,929 |
+| C_P 中的蛋白 | 1,748 |
+| P_D 中的蛋白 | 364 |
+| P_D 中的疾病 | 321 |
+| H_D 中的中药 | 447 |
+| H_D 中的疾病 | 322 |
 
-### Mapping Files
+### 映射文件
 
-| Entity | Rows |
+| 实体 | 行数 |
 |---|---:|
-| herbs | 502 |
-| compounds | 13,729 |
-| proteins | 1,753 |
-| diseases | 322 |
+| 中药 | 502 |
+| 化合物 | 13,729 |
+| 蛋白 | 1,753 |
+| 疾病 | 322 |
 
-### Connectivity / Intersection Review
+### 连通性与交集审查
 
-| Check | Count | Total | Coverage |
+| 检查项 | 数量 | 总数 | 覆盖率 |
 |---|---:|---:|---:|
-| C_P compounds with H_C support | 6,907 | 6,929 | 99.68% |
-| C_P proteins with P_D support | 364 | 1,748 | 20.82% |
-| P_D proteins with C_P support | 364 | 364 | 100.00% |
-| P_D diseases with H_D support | 321 | 321 | 100.00% |
-| H_D herbs with H_C support | 446 | 447 | 99.78% |
-| C_P edges with both H_C and P_D support | 41,762 | 56,102 | 74.44% |
-| ONE/ZERO overlap | 0 | 56,102 | 0.00% |
+| C_P 中有 H_C 支撑的化合物 | 6,907 | 6,929 | 99.68% |
+| C_P 中有 P_D 支撑的蛋白 | 364 | 1,748 | 20.82% |
+| P_D 中有 C_P 支撑的蛋白 | 364 | 364 | 100.00% |
+| P_D 中有 H_D 支撑的疾病 | 321 | 321 | 100.00% |
+| H_D 中有 H_C 支撑的中药 | 446 | 447 | 99.78% |
+| 同时有 H_C 与 P_D 支撑的 C_P 边 | 41,762 | 56,102 | 74.44% |
+| ONE/ZERO 重叠 | 0 | 56,102 | 0.00% |
 
 ## Symmap
 
-- Path: `dataset/Symmap`
-- Size: 161.8MB
+- 路径：`dataset/Symmap`
+- 大小：161.8MB
 
-### Relation Files
+### 关系文件
 
-| Relation | Unique edges | Raw rows | Malformed rows |
+| 关系 | 唯一边数 | 原始行数 | 异常行数 |
 |---|---:|---:|---:|
-| H_C (herb-compound) | 85,172 | 85,172 | 0 |
-| C_P (compound-protein) | 37,991 | 38,043 | 0 |
-| P_D (protein-disease) | 194,558 | 196,110 | 0 |
-| H_D (herb-disease) | 382,930 | 382,988 | 0 |
-| ONE (positive samples) | 37,991 | 38,043 | 0 |
-| ZERO (negative samples) | 6,477,695 | 6,477,695 | 0 |
+| H_C（中药-化合物） | 85,172 | 85,172 | 0 |
+| C_P（化合物-蛋白） | 37,991 | 38,043 | 0 |
+| P_D（蛋白-疾病） | 194,558 | 196,110 | 0 |
+| H_D（中药-疾病） | 382,930 | 382,988 | 0 |
+| ONE（正样本） | 37,991 | 38,043 | 0 |
+| ZERO（负样本） | 6,477,695 | 6,477,695 | 0 |
 
-### Entity Usage From Edges
+### 边中实际使用的实体
 
-| Entity view | Count |
+| 实体视角 | 数量 |
 |---|---:|
-| herbs_in_H_C | 686 |
-| compounds_in_H_C | 25,659 |
-| compounds_in_C_P | 1,618 |
-| proteins_in_C_P | 4,027 |
-| proteins_in_P_D | 17,898 |
-| diseases_in_P_D | 6,155 |
-| herbs_in_H_D | 685 |
-| diseases_in_H_D | 10,900 |
+| H_C 中的中药 | 686 |
+| H_C 中的化合物 | 25,659 |
+| C_P 中的化合物 | 1,618 |
+| C_P 中的蛋白 | 4,027 |
+| P_D 中的蛋白 | 17,898 |
+| P_D 中的疾病 | 6,155 |
+| H_D 中的中药 | 685 |
+| H_D 中的疾病 | 10,900 |
 
-### Mapping Files
+### 映射文件
 
-| Entity | Rows |
+| 实体 | 行数 |
 |---|---:|
-| herbs | 697 |
-| compounds | 27,277 |
-| proteins | 18,192 |
-| diseases | 12,690 |
+| 中药 | 697 |
+| 化合物 | 27,277 |
+| 蛋白 | 18,192 |
+| 疾病 | 12,690 |
 
-### Connectivity / Intersection Review
+### 连通性与交集审查
 
-| Check | Count | Total | Coverage |
+| 检查项 | 数量 | 总数 | 覆盖率 |
 |---|---:|---:|---:|
-| C_P compounds with H_C support | 1,596 | 1,618 | 98.64% |
-| C_P proteins with P_D support | 3,733 | 4,027 | 92.70% |
-| P_D proteins with C_P support | 3,733 | 17,898 | 20.86% |
-| P_D diseases with H_D support | 4,365 | 6,155 | 70.92% |
-| H_D herbs with H_C support | 674 | 685 | 98.39% |
-| C_P edges with both H_C and P_D support | 35,960 | 37,991 | 94.65% |
-| ONE/ZERO overlap | 0 | 37,991 | 0.00% |
+| C_P 中有 H_C 支撑的化合物 | 1,596 | 1,618 | 98.64% |
+| C_P 中有 P_D 支撑的蛋白 | 3,733 | 4,027 | 92.70% |
+| P_D 中有 C_P 支撑的蛋白 | 3,733 | 17,898 | 20.86% |
+| P_D 中有 H_D 支撑的疾病 | 4,365 | 6,155 | 70.92% |
+| H_D 中有 H_C 支撑的中药 | 674 | 685 | 98.39% |
+| 同时有 H_C 与 P_D 支撑的 C_P 边 | 35,960 | 37,991 | 94.65% |
+| ONE/ZERO 重叠 | 0 | 37,991 | 0.00% |
 
 ## ETCM2.0_processed
 
-- Path: `dataset/ETCM2.0_processed`
-- Size: 34.0MB
+- 路径：`dataset/ETCM2.0_processed`
+- 大小：34.0MB
 
-### Relation Files
+### 关系文件
 
-| Relation | Unique edges | Raw rows | Malformed rows |
+| 关系 | 唯一边数 | 原始行数 | 异常行数 |
 |---|---:|---:|---:|
-| H_C (herb-compound) | 67,335 | 67,335 | 0 |
-| C_P (compound-protein) | 180,589 | 180,589 | 0 |
-| P_D (protein-disease) | 2,033,920 | 2,033,920 | 0 |
-| H_D (herb-disease) | 41,076 | 41,076 | 0 |
-| ONE (positive samples) | 180,589 | 180,589 | 0 |
-| ZERO (negative samples) | 0 | 0 | 0 |
+| H_C（中药-化合物） | 67,335 | 67,335 | 0 |
+| C_P（化合物-蛋白） | 180,589 | 180,589 | 0 |
+| P_D（蛋白-疾病） | 2,033,920 | 2,033,920 | 0 |
+| H_D（中药-疾病） | 41,076 | 41,076 | 0 |
+| ONE（正样本） | 180,589 | 180,589 | 0 |
+| ZERO（负样本） | 0 | 0 | 0 |
 
-### Entity Usage From Edges
+### 边中实际使用的实体
 
-| Entity view | Count |
+| 实体视角 | 数量 |
 |---|---:|
-| herbs_in_H_C | 1,898 |
-| compounds_in_H_C | 38,255 |
-| compounds_in_C_P | 22,541 |
-| proteins_in_C_P | 973 |
-| proteins_in_P_D | 562 |
-| diseases_in_P_D | 7,693 |
-| herbs_in_H_D | 457 |
-| diseases_in_H_D | 3,929 |
+| H_C 中的中药 | 1,898 |
+| H_C 中的化合物 | 38,255 |
+| C_P 中的化合物 | 22,541 |
+| C_P 中的蛋白 | 973 |
+| P_D 中的蛋白 | 562 |
+| P_D 中的疾病 | 7,693 |
+| H_D 中的中药 | 457 |
+| H_D 中的疾病 | 3,929 |
 
-### Mapping Files
+### 映射文件
 
-| Entity | Rows |
+| 实体 | 行数 |
 |---|---:|
-| herbs | 2,075 |
-| compounds | 38,255 |
-| proteins | 987 |
-| diseases | 7,751 |
+| 中药 | 2,075 |
+| 化合物 | 38,255 |
+| 蛋白 | 987 |
+| 疾病 | 7,751 |
 
-### Connectivity / Intersection Review
+### 连通性与交集审查
 
-| Check | Count | Total | Coverage |
+| 检查项 | 数量 | 总数 | 覆盖率 |
 |---|---:|---:|---:|
-| C_P compounds with H_C support | 22,541 | 22,541 | 100.00% |
-| C_P proteins with P_D support | 548 | 973 | 56.32% |
-| P_D proteins with C_P support | 548 | 562 | 97.51% |
-| P_D diseases with H_D support | 3,929 | 7,693 | 51.07% |
-| H_D herbs with H_C support | 457 | 457 | 100.00% |
-| C_P edges with both H_C and P_D support | 109,747 | 180,589 | 60.77% |
-| ONE/ZERO overlap | 0 | 180,589 | 0.00% |
+| C_P 中有 H_C 支撑的化合物 | 22,541 | 22,541 | 100.00% |
+| C_P 中有 P_D 支撑的蛋白 | 548 | 973 | 56.32% |
+| P_D 中有 C_P 支撑的蛋白 | 548 | 562 | 97.51% |
+| P_D 中有 H_D 支撑的疾病 | 3,929 | 7,693 | 51.07% |
+| H_D 中有 H_C 支撑的中药 | 457 | 457 | 100.00% |
+| 同时有 H_C 与 P_D 支撑的 C_P 边 | 109,747 | 180,589 | 60.77% |
+| ONE/ZERO 重叠 | 0 | 180,589 | 0.00% |
 
 ## ETCM2.0_core
 
-- Path: `dataset/ETCM2.0_core`
-- Size: 32.7MB
+- 路径：`dataset/ETCM2.0_core`
+- 大小：32.7MB
 
-### Relation Files
+### 关系文件
 
-| Relation | Unique edges | Raw rows | Malformed rows |
+| 关系 | 唯一边数 | 原始行数 | 异常行数 |
 |---|---:|---:|---:|
-| H_C (herb-compound) | 36,216 | 36,216 | 0 |
-| C_P (compound-protein) | 109,747 | 109,747 | 0 |
-| P_D (protein-disease) | 1,991,225 | 1,991,225 | 0 |
-| H_D (herb-disease) | 41,076 | 41,076 | 0 |
-| ONE (positive samples) | 109,747 | 109,747 | 0 |
-| ZERO (negative samples) | 109,747 | 109,747 | 0 |
+| H_C（中药-化合物） | 36,216 | 36,216 | 0 |
+| C_P（化合物-蛋白） | 109,747 | 109,747 | 0 |
+| P_D（蛋白-疾病） | 1,991,225 | 1,991,225 | 0 |
+| H_D（中药-疾病） | 41,076 | 41,076 | 0 |
+| ONE（正样本） | 109,747 | 109,747 | 0 |
+| ZERO（负样本） | 109,747 | 109,747 | 0 |
 
-### Entity Usage From Edges
+### 边中实际使用的实体
 
-| Entity view | Count |
+| 实体视角 | 数量 |
 |---|---:|
-| herbs_in_H_C | 1,832 |
-| compounds_in_H_C | 19,242 |
-| compounds_in_C_P | 19,242 |
-| proteins_in_C_P | 548 |
-| proteins_in_P_D | 548 |
-| diseases_in_P_D | 7,693 |
-| herbs_in_H_D | 457 |
-| diseases_in_H_D | 3,929 |
+| H_C 中的中药 | 1,832 |
+| H_C 中的化合物 | 19,242 |
+| C_P 中的化合物 | 19,242 |
+| C_P 中的蛋白 | 548 |
+| P_D 中的蛋白 | 548 |
+| P_D 中的疾病 | 7,693 |
+| H_D 中的中药 | 457 |
+| H_D 中的疾病 | 3,929 |
 
-### Mapping Files
+### 映射文件
 
-| Entity | Rows |
+| 实体 | 行数 |
 |---|---:|
-| herbs | 1,832 |
-| compounds | 19,242 |
-| proteins | 548 |
-| diseases | 7,693 |
+| 中药 | 1,832 |
+| 化合物 | 19,242 |
+| 蛋白 | 548 |
+| 疾病 | 7,693 |
 
-### Connectivity / Intersection Review
+### 连通性与交集审查
 
-| Check | Count | Total | Coverage |
+| 检查项 | 数量 | 总数 | 覆盖率 |
 |---|---:|---:|---:|
-| C_P compounds with H_C support | 19,242 | 19,242 | 100.00% |
-| C_P proteins with P_D support | 548 | 548 | 100.00% |
-| P_D proteins with C_P support | 548 | 548 | 100.00% |
-| P_D diseases with H_D support | 3,929 | 7,693 | 51.07% |
-| H_D herbs with H_C support | 457 | 457 | 100.00% |
-| C_P edges with both H_C and P_D support | 109,747 | 109,747 | 100.00% |
-| ONE/ZERO overlap | 0 | 109,747 | 0.00% |
+| C_P 中有 H_C 支撑的化合物 | 19,242 | 19,242 | 100.00% |
+| C_P 中有 P_D 支撑的蛋白 | 548 | 548 | 100.00% |
+| P_D 中有 C_P 支撑的蛋白 | 548 | 548 | 100.00% |
+| P_D 中有 H_D 支撑的疾病 | 3,929 | 7,693 | 51.07% |
+| H_D 中有 H_C 支撑的中药 | 457 | 457 | 100.00% |
+| 同时有 H_C 与 P_D 支撑的 C_P 边 | 109,747 | 109,747 | 100.00% |
+| ONE/ZERO 重叠 | 0 | 109,747 | 0.00% |
 
-### Cross-validation Fold Files
+### 交叉验证折文件
 
-| File | Rows |
+| 文件 | 行数 |
 |---|---:|
 | `test_fold_0.txt` | 43,899 |
 | `test_fold_1.txt` | 43,899 |
@@ -284,9 +284,9 @@ Large raw ETCM2.0 JSON files are summarized by file count and size only.
 | `test_fold_3.txt` | 43,899 |
 | `test_fold_4.txt` | 43,898 |
 
-## Notes
+## 说明
 
-- `Unique edges` are deduplicated by the first two columns.
-- For sample files, labels in the third column are ignored for edge uniqueness.
-- TCMSP/Symmap relation names are normalized to the same H_C/C_P/P_D/H_D concepts for comparison.
-- `ETCM2.0_core` is the active training dataset in `HDCTI.conf` at the time this report was generated.
+- `唯一边数` 按前两列去重统计。
+- 对样本文件统计唯一边时，忽略第三列标签。
+- 为便于比较，TCMSP/Symmap 的关系名统一映射到 H_C/C_P/P_D/H_D 概念。
+- 生成本报告时，`HDCTI.conf` 中的活动训练数据集为 `ETCM2.0_core`。

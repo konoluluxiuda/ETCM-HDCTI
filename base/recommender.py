@@ -118,7 +118,7 @@ class Recommender(object):
         print('recommender evalRanking-------------------------------------------------------')
 
         candidates = self.predictForRanking()
-        candidates = 1 / (1 + np.exp(-candidates))
+        candidates = 1 / (1 + np.exp(-np.clip(candidates, -50, 50)))
 
         herb_mat = []
         lable_mat = []
@@ -143,8 +143,23 @@ class Recommender(object):
         dataframe0.to_csv('./results/cv/' + currentTime + self.foldInfo + '.txt',
                           columns=['label', 'predict'], index=False, header=None)
 
-        auc = roc_auc_score(lable_mat, herb_mat)
-        print('auc:', auc)
+        labels = np.asarray(lable_mat, dtype=int)
+        scores = np.asarray(herb_mat, dtype=float)
+        if not np.all(np.isfinite(scores)):
+            raise ValueError('Prediction scores contain NaN or infinity. The model training is numerically unstable.')
+        predictions = (scores >= 0.5).astype(int)
+
+        metrics = [
+            ('AUC', roc_auc_score(labels, scores)),
+            ('AUPR', average_precision_score(labels, scores)),
+            ('Recall', recall_score(labels, predictions, zero_division=0)),
+            ('Precision', precision_score(labels, predictions, zero_division=0)),
+            ('F1-score', f1_score(labels, predictions, zero_division=0)),
+        ]
+        self.measure = []
+        for name, value in metrics:
+            print('%s: %s' % (name, value))
+            self.measure.append('%s:%s' % (name, value))
 
 
     def execute(self):
@@ -175,5 +190,3 @@ class Recommender(object):
             print('Saving model %s...' % self.foldInfo)
             self.saveModel()
         return self.measure
-
-
