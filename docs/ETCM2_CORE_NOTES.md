@@ -400,13 +400,61 @@ stats/pruned_core_stats.{json,md} present
   --overwrite
 ```
 
-推荐优先进行的 GPU full-attention 测试：
+### ETCM2.0 剪枝数据集选择建议
+
+当前建议：
+
+| 数据集 | 推荐用途 | 理由 |
+|---|---|---|
+| `ETCM2.0_core_mention10` | 主 ETCM2.0 实验数据集 | 按 `mention_count >= 10` 筛选，更像基于实体出现频次和证据充分度的数据质量过滤，不直接按待预测的 C_P 标签密度筛选。 |
+| `ETCM2.0_core_cpdeg3` | 补充鲁棒性实验 | 保留更多化合物和 C_P 正样本，可检验模型在关系密度约束下是否仍稳定。 |
+| `ETCM2.0_core_cpdeg5` | 高密度数据敏感性分析 | 化合物数量更少、C_P 平均度更高，适合测试高连接场景，但不建议作为主实验，避免被质疑人为提高任务可预测性。 |
+
+因此，当前默认配置已切换为：
 
 ```text
-dataset/ETCM2.0_core_cpdeg5
+datapath=./dataset/ETCM2.0_core_mention10/ONE_indices.txt
 ```
 
-它将化合物数量从 `19,242` 降到 `7,907`，同时保留 `86,555` 条 C_P 正样本，是 16GB GPU full-attention 测试最实际的首选候选数据集。
+论文中可表述为：
+
+```text
+本文以 mention_count >= 10 的 ETCM2.0 核心数据集作为主要外部验证数据集。
+该筛选方式基于实体在数据库中的出现频次与证据丰富程度，能够在保证数据规模的同时提高实体可靠性。
+为进一步分析剪枝策略对模型性能的影响，本文额外构建 C-P degree >= 3 和 C-P degree >= 5 两个数据子集，
+分别用于鲁棒性分析和高密度数据敏感性分析。
+```
+
+`mention10` 结构审查：
+
+| 检查项 | 结果 |
+|---|---:|
+| 化合物数量 | 9,519 |
+| 蛋白数量 | 509 |
+| C_P 正样本 | 88,431 |
+| 化合物 C_P degree: min / median / mean / max | 1 / 8 / 9.29 / 58 |
+| 蛋白 C_P degree: min / median / mean / max | 1 / 24 / 173.73 / 3,464 |
+| C_P degree = 1 的化合物 | 548 |
+| C_P degree = 2 的化合物 | 620 |
+| C_P degree <= 2 的化合物 | 1,168 |
+| C_P 化合物有 H_C 支撑 | 9,519 / 9,519 |
+| C_P 蛋白有 P_D 支撑 | 509 / 509 |
+
+五折训练/测试交叉审查：
+
+| Fold | 测试样本 | 测试化合物 | 训练集中完全未出现的测试化合物 | 训练正样本中未出现的测试正样本化合物 | 测试蛋白 | 训练集中完全未出现的测试蛋白 | 训练正样本中未出现的测试正样本蛋白 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 35,373 | 9,325 | 1 | 107 | 509 | 0 | 12 |
+| 1 | 35,373 | 9,360 | 0 | 105 | 509 | 0 | 4 |
+| 2 | 35,372 | 9,341 | 0 | 110 | 509 | 0 | 16 |
+| 3 | 35,372 | 9,335 | 0 | 109 | 509 | 0 | 13 |
+| 4 | 35,372 | 9,331 | 0 | 117 | 509 | 0 | 19 |
+
+结论：
+
+- `mention10` 的全部 C_P 化合物都有 H_C 支撑，全部 C_P 蛋白都有 P_D 支撑，适合作为主数据集。
+- 随机五折下几乎没有“完全未出现在训练集”的测试实体；只有 fold 0 有 1 个测试化合物在训练集中完全缺失。
+- 仍有 `1,168 / 9,519` 个化合物的 C_P degree <= 2。这个比例不算失控，但如果后续需要更稳的版本，可以额外构建 `ETCM2.0_core_mention10_cpdeg3`，即同时满足 `mention_count >= 10` 和 C_P degree >= 3。
 
 ### 2026-07-04 ETCM2.0_core_cpdeg5 GPU Full-Attention 运行，Fold 1
 
@@ -487,6 +535,52 @@ F1-score: 0.929050(±0.002315)
 - 因为 `attention.max.nodes` 被注释，所以 full self-attention 已启用。
 - 该运行完成全部五折，并生成了汇总指标。
 - 运行时间约为 `63.01 min`。
+
+### 2026-07-04 ETCM2.0_core_cpdeg3 GPU Full-Attention 运行
+
+配置快照：
+
+```text
+datapath=./dataset/ETCM2.0_core_cpdeg3/ONE_indices.txt
+evaluation.setup=-cv 5
+num.max.epoch=50
+batch_size=2000
+learnRate=-init 0.005 -max 1
+attention.max.nodes 未设置/已注释，使用 full self-attention
+gpu.multiprocessing=False
+```
+
+Fold 5 终端输出：
+
+```text
+training: 50/50 batch 80/80 loss: 258.70782 batch_time: 0s elapsed: 15m52s eta: 0s
+epoch 50/50 finished in 18s
+model checkpoint: ./saved_model/2026-07-04 20-27-43/hdcti_model.ckpt
+fold [5]
+AUC: 0.9797040851379419
+AUPR: 0.9770393163286879
+Recall: 0.9642031171442936
+Precision: 0.8980987168680341
+F1-score: 0.9299776937251479
+```
+
+五折汇总：
+
+```text
+AUC: 0.980694(±0.000986)
+AUPR: 0.978117(±0.001561)
+Recall: 0.965953(±0.001340)
+Precision: 0.899555(±0.003385)
+F1-score: 0.931568(±0.001613)
+运行时间：4858.240954 s
+```
+
+说明：
+
+- 该运行使用 `cpdeg3` 剪枝 core，即保留 C_P degree 至少为 3 的化合物。
+- 因为 `attention.max.nodes` 被注释，所以 full self-attention 已启用。
+- 该运行完成全部五折，并生成了汇总指标。
+- 运行时间约为 `80.97 min`。
 
 ## 重建命令
 
