@@ -19,6 +19,7 @@ from tensorflow.keras.layers import LayerNormalization
 from tensorflow.keras.layers import Dropout
 
 import networkx as nx
+from util.graph import bipartite_pagerank
 # tf.compat.v1.set_random_seed(4321)
 from util.io import FileIO
 
@@ -187,10 +188,15 @@ class HDCTI(herbRecommender):
 
 
 
-        pr_compound = self.buildGraphAndPageRank(cp)
-        pr_protein = self.buildGraphAndPageRank(pd)
-        pr_compound_embeddings = np.array([pr_compound.get(i, 0) for i in range(self.num_compounds)])
-        pr_protein_embeddings = np.array([pr_protein.get(i, 0) for i in range(self.num_proteins)])
+        if getattr(self.data, 'protocol', 'legacy') == 'strict':
+            pr_compound_embeddings, _ = bipartite_pagerank(cp)
+            pr_protein_embeddings, _ = bipartite_pagerank(pd)
+            print('Strict PageRank: fold training C-P graph with type-safe bipartite node IDs.')
+        else:
+            pr_compound = self.buildGraphAndPageRank(cp)
+            pr_protein = self.buildGraphAndPageRank(pd)
+            pr_compound_embeddings = np.array([pr_compound.get(i, 0) for i in range(self.num_compounds)])
+            pr_protein_embeddings = np.array([pr_protein.get(i, 0) for i in range(self.num_proteins)])
         pr_compound_embeddings = np.reshape(pr_compound_embeddings, (self.num_compounds, 1))
         pr_protein_embeddings = np.reshape(pr_protein_embeddings, (self.num_proteins, 1))
 

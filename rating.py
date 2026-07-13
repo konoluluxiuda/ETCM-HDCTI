@@ -14,19 +14,23 @@ RELATION_FILE_CANDIDATES = {
 }
 
 
-def resolve_dataset_file(dataset_dir, relation_name):
+def resolve_dataset_file(dataset_dir, relation_name, required=True):
     for filename in RELATION_FILE_CANDIDATES[relation_name]:
         path = os.path.join(dataset_dir, filename)
         if os.path.exists(path):
             return path
+    if not required:
+        return None
     raise FileNotFoundError(
         'Cannot find %s relation file in %s. Tried: %s' %
         (relation_name, dataset_dir, ', '.join(RELATION_FILE_CANDIDATES[relation_name]))
     )
 
 
-def read_relation_file(dataset_dir, relation_name):
-    path = resolve_dataset_file(dataset_dir, relation_name)
+def read_relation_file(dataset_dir, relation_name, required=True):
+    path = resolve_dataset_file(dataset_dir, relation_name, required=required)
+    if path is None:
+        return pd.DataFrame(columns=[0, 1, 2])
     return pd.read_csv(path, sep=r'\s+', header=None, dtype={0: str, 1: str}, engine='python')
 
 
@@ -46,6 +50,7 @@ class Rating(object):
     'data access control'
     def __init__(self,config,trainingSet, testSet):
         self.config = config
+        self.protocol = config['experiment.protocol'].strip().lower() if config.contains('experiment.protocol') else 'legacy'
         self.evalSettings = OptionConf(self.config['evaluation.setup'])
         self.herb = {} #map herb names to id
         self.disease = {} #map disease names to id
@@ -105,15 +110,18 @@ class Rating(object):
         HC = read_relation_file(dataset_dir, 'H_C')
         CP = read_relation_file(dataset_dir, 'C_P')
         PD = read_relation_file(dataset_dir, 'P_D')
-        HD = read_relation_file(dataset_dir, 'H_D')
+        if self.protocol == 'strict':
+            HD = pd.DataFrame(columns=[0, 1, 2])
+        else:
+            HD = read_relation_file(dataset_dir, 'H_D')
         train_compounds = [entry[0] for entry in trainingSet]
         test_compounds = [entry[0] for entry in testSet]
         train_proteins = [entry[1] for entry in trainingSet]
         test_proteins = [entry[1] for entry in testSet]
-        hlist = unique_values(HC[0].unique(), HD[0].unique())
+        hlist = unique_values(HC[0].unique(), HD[0].unique()) if not HD.empty else unique_values(HC[0].unique())
         clist = unique_values(HC[1].unique(), CP[0].unique(), train_compounds, test_compounds)
         plist = unique_values(CP[1].unique(), PD[0].unique(), train_proteins, test_proteins)
-        dlist = unique_values(PD[1].unique(), HD[1].unique())
+        dlist = unique_values(PD[1].unique(), HD[1].unique()) if not HD.empty else unique_values(PD[1].unique())
         self.Hlist=hlist
         self.Dlist=dlist
         self.Clist=clist
@@ -122,7 +130,30 @@ class Rating(object):
         self.testData = testSet[:]
         # HC=HC.values.tolist()
         self.hcassociation = HC.values.tolist()
-        self.cpassociation = CP.values.tolist()
+        self.full_cpassociation = CP.values.tolist()
+        if self.protocol == 'strict':
+            train_positive_pairs = []
+            seen_train_positive_pairs = set()
+            for compound_id, protein_id, rating in trainingSet:
+                pair = (str(compound_id), str(protein_id))
+                if float(rating) > 0 and pair not in seen_train_positive_pairs:
+                    seen_train_positive_pairs.add(pair)
+                    train_positive_pairs.append([pair[0], pair[1], 1.0])
+            test_positive_pairs = {
+                (str(compound_id), str(protein_id))
+                for compound_id, protein_id, rating in testSet
+                if float(rating) > 0
+            }
+            overlap = seen_train_positive_pairs & test_positive_pairs
+            if overlap:
+                raise ValueError('Strict C-P graph contains %d test positive edges.' % len(overlap))
+            self.cpassociation = train_positive_pairs
+            print(
+                'Strict C-P graph: %d training positive edges; %d test positives excluded; H-D disabled.' %
+                (len(self.cpassociation), len(test_positive_pairs))
+            )
+        else:
+            self.cpassociation = self.full_cpassociation
         self.pdassociation = PD.values.tolist()
         self.hdassociation = HD.values.tolist()
         #print(HC)

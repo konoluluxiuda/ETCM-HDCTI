@@ -1,5 +1,6 @@
 from util.config import ModelConf
 from util.gpu import configure_cuda_environment
+from util.reproducibility import seed_python_numpy
 
 
 if __name__ == '__main__':
@@ -14,6 +15,7 @@ if __name__ == '__main__':
     except KeyError:
         print('wrong num!')
         exit(-1)
+    seed_python_numpy(int(conf['random.seed']) if conf.contains('random.seed') else 2026)
     configure_cuda_environment(conf)
 
     from HDR import HDR
