@@ -23,6 +23,7 @@ class Recommender(object):
         self.output = None
         self.isOutput = True
         self.data = Rating(self.config, trainingSet, testSet)
+        self.validationData = []
         # print(self.data.herb)
         # print(self.data.disease)
         # print(len(self.data.disease))
@@ -49,6 +50,8 @@ class Recommender(object):
     def printAlgorConfig(self):
         "show model's configuration"
         print('Model:', self.config['model.name'])
+        if self.config.contains('model.variant'):
+            print('Model variant:', self.config['model.variant'])
         print('Ratings dataset:', abspath(self.config['datapath']))
         if OptionConf(self.config['evaluation.setup']).contains('-testSet'):
             print('Test set:', abspath(OptionConf(self.config['evaluation.setup'])['-testSet']))
@@ -101,6 +104,13 @@ class Recommender(object):
     def predictForRanking(self, u):
         pass
 
+    def predictForPairs(self, compound_indices, protein_indices):
+        candidates = self.predictForRanking()
+        return candidates[
+            np.asarray(compound_indices, dtype=np.int64),
+            np.asarray(protein_indices, dtype=np.int64),
+        ]
+
     def checkRatingBoundary(self, prediction):
         pass
 
@@ -127,21 +137,24 @@ class Recommender(object):
 
     def evalRanking(self):
         print('recommender evalRanking-------------------------------------------------------')
-
-        candidates = self.predictForRanking()
-        candidates = 1 / (1 + np.exp(-np.clip(candidates, -50, 50)))
-
-        herb_mat = []
+        compound_indices = []
+        protein_indices = []
         lable_mat = []
 
-
-        for i, herb in enumerate(self.data.testSet_h):
+        for herb in self.data.testSet_h:
             diseaselist = self.data.testSet_h[herb].keys()
             for disease in diseaselist:
                 compound_id = self.data.compound[herb]
                 protein_id = self.data.protein[disease]
-                herb_mat.append(candidates[compound_id][protein_id])
+                compound_indices.append(compound_id)
+                protein_indices.append(protein_id)
                 lable_mat.append(self.data.testSet_h[herb][disease])
+
+        print('hdctipredict----------------------------------------------------------------------------')
+        herb_mat = np.asarray(
+            self.predictForPairs(compound_indices, protein_indices), dtype=float
+        )
+        herb_mat = 1 / (1 + np.exp(-np.clip(herb_mat, -50, 50)))
 
         currentTime = strftime("%Y-%m-%d %H-%M-%S", localtime(time()))
         data0 = {
@@ -151,11 +164,12 @@ class Recommender(object):
         }
         dataframe0 = pd.DataFrame(data0)
         os.makedirs('./results/cv', exist_ok=True)
-        dataframe0.to_csv('./results/cv/' + currentTime + self.foldInfo + '.txt',
+        variant = self.config['model.variant'] if self.config.contains('model.variant') else self.modelName
+        dataframe0.to_csv('./results/cv/' + variant + '@' + currentTime + self.foldInfo + '.txt',
                           columns=['label', 'predict'], index=False, header=None)
 
         labels = np.asarray(lable_mat, dtype=int)
-        scores = np.asarray(herb_mat, dtype=float)
+        scores = herb_mat
         if not np.all(np.isfinite(scores)):
             raise ValueError('Prediction scores contain NaN or infinity. The model training is numerically unstable.')
         predictions = (scores >= 0.5).astype(int)
@@ -194,6 +208,30 @@ class Recommender(object):
                     self.trainModel()
             except ImportError:
                 self.trainModel()
+        outer_test_enabled = True
+        if self.config.contains('evaluation.outer.test'):
+            outer_test_value = str(self.config['evaluation.outer.test']).strip().lower()
+            if outer_test_value in ('0', 'false', 'no', 'off'):
+                outer_test_enabled = False
+            elif outer_test_value not in ('1', 'true', 'yes', 'on'):
+                raise ValueError(
+                    'Invalid boolean value for evaluation.outer.test: %s' %
+                    self.config['evaluation.outer.test']
+                )
+        if not outer_test_enabled:
+            summary = getattr(self, 'early_stopping_summary', None)
+            if not summary:
+                raise ValueError(
+                    'evaluation.outer.test=False requires early stopping with a validation metric.'
+                )
+            metric_name = 'Validation-' + summary['metric'].upper()
+            print(
+                'Outer test evaluation skipped for model selection; best %s: %.6f at epoch %d.' % (
+                    summary['metric'].upper(), summary['best_value'], summary['best_epoch']
+                )
+            )
+            self.measure = ['%s:%s' % (metric_name, summary['best_value'])]
+            return self.measure
         print('Predicting %s...' % self.foldInfo)
         self.evalRanking()
         # self.calcAccuracy()

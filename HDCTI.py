@@ -20,7 +20,15 @@ from tensorflow.keras.layers import Dropout
 
 import networkx as nx
 from util.graph import bipartite_pagerank
-from util.model_components import build_regularization_loss, context_interaction_scores
+from util.model_components import (
+    EarlyStoppingTracker,
+    build_regularization_loss,
+    context_interaction_pair_scores,
+    resolve_context_terms,
+    resolve_early_stopping,
+    resolve_pair_decoder,
+)
+from sklearn.metrics import average_precision_score, roc_auc_score
 # tf.compat.v1.set_random_seed(4321)
 from util.io import FileIO
 
@@ -181,12 +189,17 @@ class HDCTI(herbRecommender):
         self.n_layer = 2
         self.weights={}
         self.attention_weights = {}
-        self.use_context_interaction = (
-            self.config.contains('context.interaction')
-            and self.config['context.interaction'].strip().lower() in ('1', 'true', 'yes', 'on')
+        self.context_terms = resolve_context_terms(self.config)
+        self.use_context_interaction = any(self.context_terms.values())
+        self.pair_decoder = resolve_pair_decoder(self.config)
+        print(
+            'Candidate context terms: C-Dctx=%s, Hctx-P=%s, Hctx-Dctx=%s' % (
+                'on' if self.context_terms['compound_disease'] else 'off',
+                'on' if self.context_terms['herb_protein'] else 'off',
+                'on' if self.context_terms['herb_disease'] else 'off',
+            )
         )
-        print('Candidate H-C/P-D context interaction: %s' %
-              ('enabled' if self.use_context_interaction else 'disabled'))
+        print('Pair decoder: %s' % self.pair_decoder['type'])
         attention_size = 64
         self.compound_attention_weights = []
         self.protein_attention_weights = []
@@ -263,6 +276,27 @@ class HDCTI(herbRecommender):
             )
             self.weights['context_herb_disease'] = tf.Variable(
                 tf.zeros([self.emb_size]), name='context_herb_disease'
+            )
+
+        if self.pair_decoder['type'] == 'bilinear':
+            # Identity initialization makes the first forward pass equal to Dot.
+            self.weights['decoder_bilinear'] = tf.Variable(
+                tf.eye(self.emb_size, dtype=tf.float32), name='decoder_bilinear'
+            )
+        elif self.pair_decoder['type'] == 'mlp':
+            hidden_size = self.pair_decoder['hidden_size']
+            self.weights['decoder_mlp_hidden'] = tf.Variable(
+                initializer([self.emb_size * 4, hidden_size]), name='decoder_mlp_hidden'
+            )
+            self.weights['decoder_mlp_hidden_bias'] = tf.Variable(
+                tf.zeros([hidden_size]), name='decoder_mlp_hidden_bias'
+            )
+            # A zero output layer gives an exact Dot residual initialization.
+            self.weights['decoder_mlp_output'] = tf.Variable(
+                tf.zeros([hidden_size, 1]), name='decoder_mlp_output'
+            )
+            self.weights['decoder_mlp_output_bias'] = tf.Variable(
+                tf.zeros([1]), name='decoder_mlp_output_bias'
             )
 
         def multi_head_attention_compound(embeddings, attention_weights, num_heads, head_dim):
@@ -442,17 +476,52 @@ class HDCTI(herbRecommender):
         #self.v_embedding = self.final_pdedge
 
 
+    def buildBasePairLogits(self):
+        dot_logits = tf.reduce_sum(tf.multiply(self.u_embedding, self.v_embedding), 1)
+        decoder_type = self.pair_decoder['type']
+        if decoder_type == 'dot':
+            return dot_logits
+        if decoder_type == 'bilinear':
+            transformed_compound = tf.matmul(
+                self.u_embedding, self.weights['decoder_bilinear']
+            )
+            return tf.reduce_sum(transformed_compound * self.v_embedding, axis=1)
+        if decoder_type == 'mlp':
+            pair_features = tf.concat(
+                [
+                    self.u_embedding,
+                    self.v_embedding,
+                    self.u_embedding * self.v_embedding,
+                    tf.abs(self.u_embedding - self.v_embedding),
+                ],
+                axis=1,
+            )
+            hidden = tf.nn.leaky_relu(
+                tf.matmul(pair_features, self.weights['decoder_mlp_hidden'])
+                + self.weights['decoder_mlp_hidden_bias'],
+                alpha=0.2,
+            )
+            residual = tf.reshape(
+                tf.matmul(hidden, self.weights['decoder_mlp_output'])
+                + self.weights['decoder_mlp_output_bias'],
+                [-1],
+            )
+            return dot_logits + residual
+        raise ValueError('Unsupported pair decoder: %s' % decoder_type)
+
     def buildPairLogits(self):
-        logits = tf.reduce_sum(tf.multiply(self.u_embedding, self.v_embedding), 1)
-        if self.use_context_interaction:
+        logits = self.buildBasePairLogits()
+        if self.context_terms['compound_disease']:
             logits += tf.reduce_sum(
                 self.u_embedding * self.v_context_embedding
                 * self.weights['context_compound_disease'], axis=1
             )
+        if self.context_terms['herb_protein']:
             logits += tf.reduce_sum(
                 self.u_context_embedding * self.v_embedding
                 * self.weights['context_herb_protein'], axis=1
             )
+        if self.context_terms['herb_disease']:
             logits += tf.reduce_sum(
                 self.u_context_embedding * self.v_context_embedding
                 * self.weights['context_herb_disease'], axis=1
@@ -470,6 +539,63 @@ class HDCTI(herbRecommender):
             self.regU,
             self.regI,
         )
+
+    def fetchModelState(self):
+        return self.sess.run(
+            {
+                'compound': self.final_uembedding,
+                'protein': self.final_iembedding,
+                'compound_context': self.final_compound_context,
+                'protein_context': self.final_protein_context,
+                'weights': self.weights,
+            },
+            feed_dict={self.isTraining: 0},
+        )
+
+    def evaluateValidation(self, state, metric):
+        if not self.validationData:
+            raise ValueError('Early stopping is enabled but no inner validation records were provided.')
+
+        compound_indices = []
+        protein_indices = []
+        labels = []
+        for compound_id, protein_id, rating in self.validationData:
+            compound_key = str(compound_id)
+            protein_key = str(protein_id)
+            if compound_key not in self.data.compound or protein_key not in self.data.protein:
+                raise ValueError(
+                    'Validation pair contains an entity outside the model universe: %s, %s.' %
+                    (compound_key, protein_key)
+                )
+            compound_indices.append(self.data.compound[compound_key])
+            protein_indices.append(self.data.protein[protein_key])
+            labels.append(1 if float(rating) > 0 else 0)
+
+        labels = np.asarray(labels, dtype=np.int32)
+        if len(np.unique(labels)) < 2:
+            raise ValueError('Inner validation must contain both positive and negative records.')
+        zero_weight = np.zeros(self.emb_size, dtype=np.float32)
+        weights = state['weights']
+        logits = context_interaction_pair_scores(
+            state['compound'],
+            state['protein'],
+            state['compound_context'],
+            state['protein_context'],
+            compound_indices,
+            protein_indices,
+            weights.get('context_compound_disease', zero_weight),
+            weights.get('context_herb_protein', zero_weight),
+            weights.get('context_herb_disease', zero_weight),
+            enabled_terms=self.context_terms,
+            decoder_type=self.pair_decoder['type'],
+            decoder_weights=weights,
+        )
+        scores = 1.0 / (1.0 + np.exp(-np.clip(logits, -50, 50)))
+        if metric == 'aupr':
+            return float(average_precision_score(labels, scores))
+        if metric == 'auc':
+            return float(roc_auc_score(labels, scores))
+        raise ValueError('Unsupported validation metric: %s' % metric)
 
     def trainModel(self):
         def format_duration(seconds):
@@ -499,9 +625,34 @@ class HDCTI(herbRecommender):
         init = tf.global_variables_initializer()
         self.sess.run(init)
 
+        early_stopping = resolve_early_stopping(self.config)
+        if early_stopping['enabled'] and not self.validationData:
+            raise ValueError('early.stopping=True requires a non-empty inner validation split.')
+        tracker = None
+        if early_stopping['enabled']:
+            tracker = EarlyStoppingTracker(
+                early_stopping['patience'], early_stopping['min_delta']
+            )
+            print(
+                'Early stopping: metric=%s interval=%d patience=%d min_delta=%g validation_pairs=%d' % (
+                    early_stopping['metric'].upper(),
+                    early_stopping['interval'],
+                    early_stopping['patience'],
+                    early_stopping['min_delta'],
+                    len(self.validationData),
+                )
+            )
+
+        currentTime = strftime("%Y-%m-%d %H-%M-%S", localtime(time()))
+        model_dir = os.path.join("./saved_model", currentTime)
+        os.makedirs(model_dir, exist_ok=True)
+        model_path = os.path.join(model_dir, "hdcti_model.ckpt")
+        saver = tf.train.Saver(max_to_keep=1)
+
         total_batches = int(np.ceil(float(self.train_size) / self.batch_size))
         total_steps = max(1, self.maxEpoch * total_batches)
         train_start = time()
+        epochs_completed = 0
         for epoch in range(self.maxEpoch):
             epoch_start = time()
             for n, batch in enumerate(self.next_batch_pairwise()):
@@ -522,49 +673,129 @@ class HDCTI(herbRecommender):
                        format_duration(batch_time), format_duration(elapsed), format_duration(eta)))
             print('epoch %d/%d finished in %s' %
                   (epoch + 1, self.maxEpoch, format_duration(time() - epoch_start)))
-        self.u, self.i, self.u_context, self.i_context, self.weight = self.sess.run(
-            [
-                self.final_uembedding,
-                self.final_iembedding,
-                self.final_compound_context,
-                self.final_protein_context,
-                self.weights,
-            ],
-            feed_dict={self.isTraining: 0}
-        )
+            epochs_completed = epoch + 1
+
+            should_validate = early_stopping['enabled'] and (
+                (epoch + 1) % early_stopping['interval'] == 0
+                or epoch + 1 == self.maxEpoch
+            )
+            if should_validate:
+                validation_value = self.evaluateValidation(
+                    self.fetchModelState(), early_stopping['metric']
+                )
+                improved, should_stop = tracker.update(validation_value, epoch + 1)
+                if improved:
+                    saver.save(self.sess, model_path)
+                print(
+                    'validation: epoch %d %s=%.6f best=%.6f best_epoch=%d stale=%d/%d%s' % (
+                        epoch + 1,
+                        early_stopping['metric'].upper(),
+                        validation_value,
+                        tracker.best_value,
+                        tracker.best_epoch,
+                        tracker.stale_checks,
+                        tracker.patience,
+                        ' improved' if improved else '',
+                    )
+                )
+                if should_stop:
+                    print('Early stopping triggered at epoch %d.' % (epoch + 1))
+                    break
+
+        if early_stopping['enabled']:
+            saver.restore(self.sess, model_path)
+            self.early_stopping_summary = {
+                'best_epoch': tracker.best_epoch,
+                'best_value': tracker.best_value,
+                'epochs_completed': epochs_completed,
+                'metric': early_stopping['metric'],
+            }
+            print(
+                'Restored best validation checkpoint: epoch %d %s=%.6f' % (
+                    tracker.best_epoch,
+                    early_stopping['metric'].upper(),
+                    tracker.best_value,
+                )
+            )
+        else:
+            self.early_stopping_summary = None
+
+        state = self.fetchModelState()
+        self.u = state['compound']
+        self.i = state['protein']
+        self.u_context = state['compound_context']
+        self.i_context = state['protein_context']
+        self.weight = state['weights']
         if self.use_context_interaction:
-            print('Context weight mean abs: C-Dctx %.6f, Hctx-P %.6f, Hctx-Dctx %.6f' % (
-                np.mean(np.abs(self.weight['context_compound_disease'])),
-                np.mean(np.abs(self.weight['context_herb_protein'])),
-                np.mean(np.abs(self.weight['context_herb_disease'])),
+            context_weight_values = {
+                'compound_disease': np.mean(np.abs(self.weight['context_compound_disease'])),
+                'herb_protein': np.mean(np.abs(self.weight['context_herb_protein'])),
+                'herb_disease': np.mean(np.abs(self.weight['context_herb_disease'])),
+            }
+            print('Context weight mean abs: C-Dctx %s, Hctx-P %s, Hctx-Dctx %s' % (
+                '%.6f' % context_weight_values['compound_disease']
+                if self.context_terms['compound_disease'] else 'off',
+                '%.6f' % context_weight_values['herb_protein']
+                if self.context_terms['herb_protein'] else 'off',
+                '%.6f' % context_weight_values['herb_disease']
+                if self.context_terms['herb_disease'] else 'off',
             ))
-        currentTime = strftime("%Y-%m-%d %H-%M-%S", localtime(time()))
         os.makedirs('./results', exist_ok=True)
         np.savetxt('./results/herbedgeDHCN_herb_embedding' + currentTime + '.txt', self.u)
         np.savetxt('./results/diseaseedgeDHCN_disease_embedding' + currentTime + '.txt', self.i)
         if self.use_context_interaction:
             np.savetxt('./results/compound_herb_context' + currentTime + '.txt', self.u_context)
             np.savetxt('./results/protein_disease_context' + currentTime + '.txt', self.i_context)
-        saver = tf.train.Saver()
-        model_dir = os.path.join("./saved_model", currentTime)
-        os.makedirs(model_dir, exist_ok=True)  # 创建目录（如果不存在）
-
-        # 构造完整保存路径：./saved_model/{currentTime}/hdcti_model.ckpt
-        model_path = os.path.join(model_dir, "hdcti_model.ckpt")
-
-        # 保存模型
-        save_path = saver.save(self.sess, model_path)
+        save_path = model_path if early_stopping['enabled'] else saver.save(self.sess, model_path)
         print("模型权重保存成功: %s" % save_path)
+    def predictForPairs(self, compound_indices, protein_indices):
+        zero_weight = np.zeros(self.emb_size, dtype=np.float32)
+        return context_interaction_pair_scores(
+            self.u,
+            self.i,
+            self.u_context,
+            self.i_context,
+            compound_indices,
+            protein_indices,
+            self.weight.get('context_compound_disease', zero_weight),
+            self.weight.get('context_herb_protein', zero_weight),
+            self.weight.get('context_herb_disease', zero_weight),
+            enabled_terms=self.context_terms,
+            decoder_type=self.pair_decoder['type'],
+            decoder_weights=self.weight,
+        )
+
     def predictForRanking(self):
         print('hdctipredict----------------------------------------------------------------------------')
-        if self.use_context_interaction:
-            return context_interaction_scores(
-                self.u,
-                self.i,
-                self.u_context,
-                self.i_context,
-                self.weight['context_compound_disease'],
-                self.weight['context_herb_protein'],
-                self.weight['context_herb_disease'],
+        decoder_type = self.pair_decoder['type']
+        if decoder_type == 'dot':
+            scores = self.u.dot(self.i.transpose())
+        elif decoder_type == 'bilinear':
+            scores = (self.u.dot(self.weight['decoder_bilinear'])).dot(self.i.transpose())
+        else:
+            scores = np.empty((self.num_compounds, self.num_proteins), dtype=np.float32)
+            batch_size = self.pair_decoder['prediction_batch_size']
+            total_pairs = self.num_compounds * self.num_proteins
+            for start in range(0, total_pairs, batch_size):
+                stop = min(start + batch_size, total_pairs)
+                flat_indices = np.arange(start, stop, dtype=np.int64)
+                compound_indices = flat_indices // self.num_proteins
+                protein_indices = flat_indices % self.num_proteins
+                scores.reshape(-1)[start:stop] = self.predictForPairs(
+                    compound_indices, protein_indices
+                )
+            return scores
+
+        if self.context_terms['compound_disease']:
+            scores += (self.u * self.weight['context_compound_disease']).dot(
+                self.i_context.transpose()
             )
-        return self.u.dot(self.i.transpose())
+        if self.context_terms['herb_protein']:
+            scores += (self.u_context * self.weight['context_herb_protein']).dot(
+                self.i.transpose()
+            )
+        if self.context_terms['herb_disease']:
+            scores += (self.u_context * self.weight['context_herb_disease']).dot(
+                self.i_context.transpose()
+            )
+        return scores

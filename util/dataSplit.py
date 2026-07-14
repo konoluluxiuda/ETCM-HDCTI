@@ -124,6 +124,68 @@ class DataSplit(object):
             yield trainingSet, testSet
 
     @staticmethod
+    def innerValidationSplit(data, ratio, seed):
+        ratio = float(ratio)
+        if not 0.0 < ratio < 1.0:
+            raise ValueError('Inner validation ratio must be between 0 and 1.')
+
+        records_by_label = {0: [], 1: []}
+        pair_labels = {}
+        for left_id, right_id, rating in data:
+            pair = (str(left_id), str(right_id))
+            label = 1 if float(rating) > 0 else 0
+            if pair in pair_labels:
+                if pair_labels[pair] != label:
+                    raise ValueError('Conflicting labels for inner-validation pair %s.' % (pair,))
+                raise ValueError('Duplicate pair in inner-validation input: %s.' % (pair,))
+            pair_labels[pair] = label
+            records_by_label[label].append([pair[0], pair[1], float(label)])
+
+        if any(len(records) < 2 for records in records_by_label.values()):
+            raise ValueError('Inner validation requires at least two positive and two negative records.')
+
+        inner_train = []
+        validation = []
+        class_counts = {}
+        for label in (0, 1):
+            records = sorted(records_by_label[label], key=lambda row: (row[0], row[1]))
+            random.Random(int(seed) + label).shuffle(records)
+            validation_count = int(round(len(records) * ratio))
+            validation_count = max(1, min(len(records) - 1, validation_count))
+            validation.extend(records[:validation_count])
+            inner_train.extend(records[validation_count:])
+            class_counts[str(label)] = {
+                'total': len(records),
+                'inner_train': len(records) - validation_count,
+                'validation': validation_count,
+            }
+
+        random.Random(int(seed) + 2).shuffle(inner_train)
+        random.Random(int(seed) + 3).shuffle(validation)
+        train_pairs = {(row[0], row[1]) for row in inner_train}
+        validation_pairs = {(row[0], row[1]) for row in validation}
+        if train_pairs & validation_pairs:
+            raise ValueError('Inner train and validation pairs overlap.')
+
+        assignment_lines = [
+            '%s\t%s\t%d\t%s' % (row[0], row[1], int(row[2]), partition)
+            for partition, records in (('train', inner_train), ('validation', validation))
+            for row in records
+        ]
+        assignment_hash = hashlib.sha256(
+            ('\n'.join(sorted(assignment_lines)) + '\n').encode('utf-8')
+        ).hexdigest()
+        info = {
+            'seed': int(seed),
+            'ratio': ratio,
+            'inner_train_records': len(inner_train),
+            'validation_records': len(validation),
+            'class_counts': class_counts,
+            'assignments_sha256': assignment_hash,
+        }
+        return inner_train, validation, info
+
+    @staticmethod
     def prepareStrictFolds(conf, datapath, k):
         if k <= 1 or k > 10:
             raise ValueError('Strict cross-validation requires k between 2 and 10.')

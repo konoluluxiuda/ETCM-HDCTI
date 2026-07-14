@@ -23,6 +23,31 @@ class DummyConf(object):
 
 
 class StrictProtocolTest(unittest.TestCase):
+    def test_inner_validation_split_is_deterministic_balanced_and_disjoint(self):
+        records = []
+        for index in range(10):
+            records.append(['c%d' % index, 'p0', 1.0])
+            records.append(['c%d' % index, 'p1', 0.0])
+
+        first_train, first_validation, first_info = DataSplit.innerValidationSplit(
+            records, ratio=0.2, seed=41
+        )
+        second_train, second_validation, second_info = DataSplit.innerValidationSplit(
+            list(reversed(records)), ratio=0.2, seed=41
+        )
+
+        self.assertEqual(first_train, second_train)
+        self.assertEqual(first_validation, second_validation)
+        self.assertEqual(first_info, second_info)
+        self.assertEqual(len(first_train), 16)
+        self.assertEqual(len(first_validation), 4)
+        self.assertEqual(sum(row[2] > 0 for row in first_validation), 2)
+        self.assertEqual(sum(row[2] == 0 for row in first_validation), 2)
+        self.assertFalse(
+            {(row[0], row[1]) for row in first_train}
+            & {(row[0], row[1]) for row in first_validation}
+        )
+
     def test_strict_split_is_reused_and_balanced(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             dataset_dir = Path(temporary_directory)

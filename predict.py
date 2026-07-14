@@ -59,19 +59,29 @@ if __name__ == '__main__':
                 saver.restore(sess, model_ckpt_path)
                 print("✅ 成功加载模型参数")
 
-                model.u, model.i = sess.run([model.final_uembedding, model.final_iembedding],
-                                            feed_dict={model.isTraining: 0})
-                scores = model.predictForRanking()
-
                 y_true = []
-                y_score = []
+                compound_indices = []
+                protein_indices = []
                 for herb_name, protein_name, label in test_set:
                     if herb_name not in model.data.compound or protein_name not in model.data.protein:
                         continue
                     herb_idx = model.data.compound[herb_name]
                     protein_idx = model.data.protein[protein_name]
                     y_true.append(int(label))
-                    y_score.append(scores[herb_idx, protein_idx])
+                    compound_indices.append(herb_idx)
+                    protein_indices.append(protein_idx)
+
+                model.u, model.i, model.u_context, model.i_context, model.weight = sess.run(
+                    [
+                        model.final_uembedding,
+                        model.final_iembedding,
+                        model.final_compound_context,
+                        model.final_protein_context,
+                        model.weights,
+                    ],
+                    feed_dict={model.isTraining: 0},
+                )
+                y_score = model.predictForPairs(compound_indices, protein_indices)
 
                 if len(set(y_true)) < 2:
                     print("⚠️ 当前折测试集中只有一种标签，无法计算 AUC")

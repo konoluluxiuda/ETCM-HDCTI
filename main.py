@@ -1,20 +1,27 @@
 from util.config import ModelConf
 from util.gpu import configure_cuda_environment
 from util.reproducibility import seed_python_numpy
+import argparse
+import os
 
 
 if __name__ == '__main__':
-
-
     import time
     s = time.time()
-    #Register your model here and add the conf file yuinto the config directory
+    parser = argparse.ArgumentParser(description='Run an HDCTI experiment.')
+    parser.add_argument(
+        '--config',
+        default=os.environ.get('HDCTI_CONFIG', 'HDCTI.conf'),
+        help='Path to the experiment configuration file.',
+    )
+    args = parser.parse_args()
 
     try:
-        conf = ModelConf('HDCTI.conf')
+        conf = ModelConf(args.config)
     except KeyError:
         print('wrong num!')
         exit(-1)
+    print('Experiment config:', os.path.abspath(args.config))
     seed_python_numpy(int(conf['random.seed']) if conf.contains('random.seed') else 2026)
     configure_cuda_environment(conf)
 

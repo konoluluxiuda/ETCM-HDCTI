@@ -9,6 +9,7 @@ import numpy as np
 import mkl
 
 from util.reproducibility import set_global_seed
+from util.model_components import resolve_early_stopping
 
 
 class HDR(object):
@@ -21,6 +22,9 @@ class HDR(object):
         self.strictFolds = None
         self.strictManifest = None
         self.ratingConfig = OptionConf(config['ratings.setup'])
+        self.earlyStopping = resolve_early_stopping(config)
+        if self.earlyStopping['enabled'] and self.protocol != 'strict':
+            raise ValueError('Inner-validation early stopping currently requires experiment.protocol=strict.')
         if self.config.contains('evaluation.setup'):
             self.evaluation = OptionConf(config['evaluation.setup'])
             if self.protocol == 'strict':
@@ -52,6 +56,12 @@ class HDR(object):
             if k < 2 or k > 10:  # limit to 2-10 fold cross validation
                 print("k for cross-validation should not be greater than 10 or less than 2")
                 exit(-1)
+            fold_limit = (
+                int(self.config['evaluation.fold.limit'])
+                if self.config.contains('evaluation.fold.limit') else k
+            )
+            if fold_limit < 1 or fold_limit > k:
+                raise ValueError('evaluation.fold.limit must be between 1 and %d.' % k)
             mkl.set_num_threads(max(1, mkl.get_max_threads() // k))
             use_multiprocessing = True
             if self.config.contains('gpu.multiprocessing'):
@@ -72,18 +82,42 @@ class HDR(object):
                 self.trainingData, k, path=dataset_dir
             )
             base_seed = int(self.config['random.seed']) if self.config.contains('random.seed') else 2026
+            validation_seed_base = (
+                int(self.config['validation.seed'])
+                if self.config.contains('validation.seed') else base_seed + 100000
+            )
             for train, test in folds:
+                if i > fold_limit:
+                    break
                 fold = '[' + str(i) + ']'
-                recommender = self.config['model.name'] + "(self.config,train,test,fold)"
+                train_for_model = train
+                validation = []
+                if self.earlyStopping['enabled']:
+                    validation_seed = validation_seed_base + i - 1
+                    train_for_model, validation, validation_info = DataSplit.innerValidationSplit(
+                        train, self.earlyStopping['ratio'], validation_seed
+                    )
+                    print(
+                        'Fold %d inner validation: train %d, validation %d, seed %d, hash %s.' % (
+                            i,
+                            validation_info['inner_train_records'],
+                            validation_info['validation_records'],
+                            validation_info['seed'],
+                            validation_info['assignments_sha256'][:12],
+                        )
+                    )
+                recommender = self.config['model.name'] + "(self.config,train_for_model,test,fold)"
+                algorithm = eval(recommender)
+                algorithm.validationData = validation
                 if not use_multiprocessing:
                     fold_seed = base_seed + i - 1
                     set_global_seed(fold_seed, reset_tensorflow_graph=True)
                     print('Fold %d random seed: %d' % (i, fold_seed))
-                    mDict[i] = eval(recommender).execute()
+                    mDict[i] = algorithm.execute()
                     i += 1
                     continue
                 # create the process
-                p = Process(target=run, args=(mDict, eval(recommender), i))
+                p = Process(target=run, args=(mDict, algorithm, i))
                 tasks.append(p)
                 i += 1
             if use_multiprocessing:
@@ -97,13 +131,14 @@ class HDR(object):
                     for p in tasks:
                         p.join()
             # compute the average and standard deviation of k-fold cross validation
-            self.measure = [mDict[i] for i in range(1, k + 1) if i in mDict]
+            self.measure = [mDict[i] for i in range(1, fold_limit + 1) if i in mDict]
             res = []
             if not self.measure:
                 print('No fold metrics were returned.')
                 return
-            if len(self.measure) != k:
-                print('Warning: expected %d folds but received metrics from %d folds.' % (k, len(self.measure)))
+            if len(self.measure) != fold_limit:
+                print('Warning: expected %d folds but received metrics from %d folds.' %
+                      (fold_limit, len(self.measure)))
             for i in range(len(self.measure[0])):
                 measure = self.measure[0][i].split(':')[0]
                 values = []
@@ -115,9 +150,18 @@ class HDR(object):
             # output result
             currentTime = strftime("%Y-%m-%d %H-%M-%S", localtime(time()))
             outDir = OptionConf(self.config['output.setup'])['-dir']
-            fileName = self.config['model.name'] + '@' + currentTime + '-' + str(k) + '-fold-cv' + '.txt'
+            variant = self.config['model.variant'] if self.config.contains('model.variant') else self.config['model.name']
+            if fold_limit == k:
+                evaluation_label = str(k) + '-fold-cv'
+                result_title = 'The result of %d-fold cross validation' % k
+            else:
+                evaluation_label = 'first-%d-of-%d-fold-pilot' % (fold_limit, k)
+                result_title = 'Pilot result for first %d fold(s) of %d-fold cross validation' % (
+                    fold_limit, k
+                )
+            fileName = variant + '@' + currentTime + '-' + evaluation_label + '.txt'
             FileIO.writeFile(outDir, fileName, res)
-            print('The result of %d-fold cross validation:\n%s' % (k, ''.join(res)))
+            print('%s:\n%s' % (result_title, ''.join(res)))
         else:
 
             recommender = self.config['model.name'] + '(self.config,self.trainingData,self.testData)'
