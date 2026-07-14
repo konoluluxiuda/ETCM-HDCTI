@@ -146,4 +146,44 @@ checkpoint: ./saved_model/2026-07-14 18-43-19/hdcti_model.ckpt
 
 该差值不能单独归因于早停：固定 50 epoch 模型使用完整 outer-train，而当前模型保留 10% outer-train 作为 validation，只使用 90% 数据训练和构图。单折结果也不能代替五折或多 seed 统计。当前 pilot 只用于验收协议，不据此修改 patience、min-delta 或 validation 比例。
 
-协议验收结论：GPU 训练、周期验证、stale 计数、提前停止、最佳 checkpoint 恢复、外层单次评估和 pilot 结果命名均工作正常。协议已经冻结并用于 Dot/Bilinear/MLP decoder 选择，详见 [PAIR_DECODERS.md](PAIR_DECODERS.md)。完整五折只需在确定最终候选结构后，对匹配基线和最终模型统一运行。
+协议验收结论：GPU 训练、周期验证、stale 计数、提前停止、最佳 checkpoint 恢复、外层单次评估和 pilot 结果命名均工作正常。协议已经冻结并用于 Dot/Bilinear/MLP decoder 选择，详见 [PAIR_DECODERS.md](PAIR_DECODERS.md)。
+
+## 7. TCMSP 完整五折结果
+
+2026-07-14 至 2026-07-15，修复后的无上下文基线与最终 HerbOnly 模型在同一预注册早停协议下完成了完整五折。两者复用相同的 Strict manifest、outer/inner 划分、seed、负样本、Dot decoder 和评价代码。
+
+### 7.1 最佳 checkpoint 分布
+
+| Fold | w/o Context 最佳 epoch | Validation AUPR | HerbOnly 最佳 epoch | Validation AUPR |
+|---:|---:|---:|---:|---:|
+| 1 | 48 | 0.976864 | 32 | 0.983666 |
+| 2 | 4 | 0.970684 | 30 | 0.984288 |
+| 3 | 4 | 0.972259 | 24 | 0.983850 |
+| 4 | 50 | 0.975059 | 32 | 0.985626 |
+| 5 | 4 | 0.968011 | 18 | 0.983448 |
+
+无上下文基线在 fold 1 和 fold 4 训练至第 50 epoch 附近，但在 fold 2、3、5 均于 epoch 4 取得最佳值并在 epoch 14 停止，呈现明显的双峰训练轨迹。HerbOnly 的最佳 epoch 位于 18 至 32，五折轨迹更集中。
+
+### 7.2 外层测试五折汇总
+
+| 指标 | w/o Context | HerbOnly | HerbOnly - w/o Context |
+|---|---:|---:|---:|
+| AUC | 0.977039(±0.004187) | 0.987095(±0.001265) | +0.010056 |
+| AUPR | 0.973252(±0.003039) | 0.984085(±0.001782) | +0.010833 |
+| Recall | 0.982443(±0.009727) | 0.958290(±0.005606) | -0.024153 |
+| Precision | 0.811758(±0.108594) | 0.951731(±0.001752) | +0.139973 |
+| F1-score | 0.885411(±0.059742) | 0.954991(±0.002525) | +0.069580 |
+
+| 运行信息 | w/o Context | HerbOnly |
+|---|---:|---:|
+| 总运行时间 | 1393.354603 s | 1760.008411 s |
+| Fold 5 最佳 epoch | 4 | 18 |
+| Fold 5 checkpoint | `2026-07-14 23-28-12` | `2026-07-15 00-02-55` |
+
+HerbOnly 的 AUC、AUPR、Precision 和 F1 在 5/5 折均高于无上下文基线，Recall 在 5/5 折降低。它同时显著降低了 fold 波动，尤其是 Precision 标准差由 `0.108594` 降至 `0.001752`，说明药材上下文交互不仅改变阈值下的 Precision/Recall 平衡，也提高了该早停协议下的训练稳定性。
+
+### 7.3 解释边界
+
+早停对照中的大幅 F1 差距不能全部解释为 Hctx-P 的纯结构贡献。无上下文基线有三折在 epoch 4 达到局部最佳，导致 Precision 和 F1 明显下降；该现象放大了两个模型之间的均值差距。由于协议已预注册且两组完全一致，结果可作为最终早停协议下的有效比较，但不能事后根据外层测试结果修改 patience 或 min-delta。
+
+模块作用的保守估计仍以固定 50 epoch 匹配对照为主：HerbOnly 相对 w/o Context 的 AUC、AUPR、Precision 和 F1 分别提高 `0.004972`、`0.006944`、`0.023925` 和 `0.002736`。早停五折则作为额外证据，说明 HerbOnly 对内层模型选择更稳健。HerbOnly 早停结果相对其固定 50 epoch 结果的 AUC、AUPR 和 F1 分别变化 `-0.001385`、`-0.001351` 和 `-0.001729`，运行时间减少 `824.530942 s`（约 `31.9%`）。
