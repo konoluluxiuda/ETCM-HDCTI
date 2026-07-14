@@ -15,6 +15,7 @@ def _as_bool(value, default=False):
 
 def configure_cuda_environment(conf=None):
     """Set CUDA visibility before TensorFlow is imported."""
+    os.environ.setdefault('TF_CPP_MIN_LOG_LEVEL', '1')
     if _as_bool(os.environ.get('HDCTI_FORCE_CPU'), False):
         os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
         return

@@ -220,6 +220,34 @@ Fold 5 终端输出：
 - 当前差值同时包含固定负样本/fold、逐折 C-P 图、PageRank ID 修正和随机种子固定的共同影响，不能归因于单一因素。
 - 五折标准差描述 fold 差异，不等于多次随机初始化方差。当前结果已足以验收 Strict 基线，不安排同 seed 重复长跑；只有最终投稿统计需要时再补充多 seed 实验。
 
+### TCMSP, 2026-07-14 13:13，Context Interaction v1，Strict 协议
+
+该版本沿用 `strict_seed_2026_k5` 固定划分、50 epoch、full self-attention 和新 TensorFlow 环境，在修复 embedding 正则重复累加后启用候选级 H-C/P-D 上下文交互。
+
+| 指标 | Strict-HDCTI | Context Interaction v1 | 差值 |
+|---|---:|---:|---:|
+| AUC | 0.985893(±0.000960) | 0.987372(±0.000944) | +0.001479 |
+| AUPR | 0.982425(±0.001396) | 0.983825(±0.001173) | +0.001400 |
+| Recall | 0.976275(±0.001396) | 0.958522(±0.002978) | -0.017753 |
+| Precision | 0.939059(±0.003614) | 0.953921(±0.002844) | +0.014862 |
+| F1-score | 0.957303(±0.002276) | 0.956212(±0.001986) | -0.001091 |
+
+运行时间：`2305.836417 s`（约 `38.43 min`）。Fold 5 checkpoint：`./saved_model/2026-07-14 13-13-02/hdcti_model.ckpt`。
+
+该结果表现为 AUC/AUPR 提高、Precision 提高、Recall 降低和 F1 小幅下降。由于 Context v1 同时包含正则修复，差值不能全部归因于上下文模块；需要在同一修复后代码上运行 `context.interaction=False` 的 `w/o Context` 对照。详细配置、Fold 5 指标及上下文权重见 [CONTEXT_INTERACTION.md](CONTEXT_INTERACTION.md)。
+
+匹配的修复后 `w/o Context` 对照已于 2026-07-14 13:56 完成：
+
+| 指标 | w/o Context | Context Interaction v1 | Context 增益 |
+|---|---:|---:|---:|
+| AUC | 0.983508(±0.001183) | 0.987372(±0.000944) | +0.003864 |
+| AUPR | 0.978492(±0.001944) | 0.983825(±0.001173) | +0.005333 |
+| Recall | 0.974386(±0.001094) | 0.958522(±0.002978) | -0.015864 |
+| Precision | 0.934423(±0.003798) | 0.953921(±0.002844) | +0.019498 |
+| F1-score | 0.953984(±0.002325) | 0.956212(±0.001986) | +0.002228 |
+
+`w/o Context` 运行时间为 `2302.556250 s`，Fold 5 checkpoint 为 `./saved_model/2026-07-14 13-56-27/hdcti_model.ckpt`。在同一修复后代码下，Context v1 同时提高 AUC、AUPR 和 F1，说明候选上下文模块本身具有正向贡献；其主要行为变化是提高 Precision 并降低 Recall。
+
 ### TCM-Suite, 2026-07-02 22:30
 
 配置快照：

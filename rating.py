@@ -157,7 +157,6 @@ class Rating(object):
         self.pdassociation = PD.values.tolist()
         self.hdassociation = HD.values.tolist()
         #print(HC)
-        print('trainingdata type:',type(self.trainingData))
         #print(testSet)
         self.__generateSet()
         self.__computediseaseMean()

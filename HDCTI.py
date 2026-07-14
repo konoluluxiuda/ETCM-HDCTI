@@ -1,11 +1,11 @@
 #coding:utf8
 import os
-from util.gpu import configure_cuda_environment, configure_tensorflow_runtime
+from util.gpu import configure_cuda_environment
 configure_cuda_environment()
 
 import tensorflow.compat.v1 as tf #使用1.0版本的方法
+tf.logging.set_verbosity(tf.logging.ERROR)
 tf.disable_v2_behavior() #禁用2.0版本的方法
-configure_tensorflow_runtime(tf)
 from base.herbRecommender import herbRecommender
 from scipy.sparse import coo_matrix,hstack
 #import tensorflow as tf
@@ -20,6 +20,7 @@ from tensorflow.keras.layers import Dropout
 
 import networkx as nx
 from util.graph import bipartite_pagerank
+from util.model_components import build_regularization_loss, context_interaction_scores
 # tf.compat.v1.set_random_seed(4321)
 from util.io import FileIO
 
@@ -30,15 +31,12 @@ class HDCTI(herbRecommender):
 
     def buildAdjacencyMatrix(self):
         row, col, entries = [], [], []
-        i=0
         for pair in self.data.trainingData:
             # symmetric matrix，对称矩阵
             if int(pair[2])!=0:
                 row += [self.data.compound[pair[0]]]
                 col += [self.data.protein[pair[1]]]
                 entries += [1]
-                i+=1
-        print('i======i',i)
         # u_i_adj = coo_matrix((entries, (row, col)), shape=(self.num_herbs,self.num_diseases),dtype=np.float32)
         u_i_adj = coo_matrix((entries,(row,col)), shape=(self.num_compounds, self.num_proteins),dtype=np.float32)
         return u_i_adj
@@ -105,6 +103,13 @@ class HDCTI(herbRecommender):
 
     def initModel(self):
         super(HDCTI, self).initModel()
+
+        def safe_reciprocal(values):
+            values = np.asarray(values, dtype=np.float32)
+            result = np.zeros_like(values)
+            np.divide(1.0, values, out=result, where=values != 0)
+            return result
+
         #Build adjacency matrix
         A = self.buildAdjacencyMatrix()
         #A=A.dot(A.transpose().dot(A))
@@ -122,9 +127,9 @@ class HDCTI(herbRecommender):
         # 计算 H_c 中每一列的和，并将其形状调整为 (1, -1)
         D_hc_e = H_c.sum(axis=0).reshape(1, -1)
         # 计算边的归一化矩阵
-        temp1 = (H_c.multiply(1.0 / D_hc_e)).transpose()
+        temp1 = (H_c.multiply(safe_reciprocal(D_hc_e))).transpose()
         # 计算节点的归一化矩阵
-        temp2 = (H_c.transpose().multiply(1.0 / D_hc_v)).transpose()
+        temp2 = (H_c.transpose().multiply(safe_reciprocal(D_hc_v))).transpose()
         # 将边的矩阵转换为 COO 格式
         edge = temp1.tocoo()
         # 将节点的矩阵转换为 COO 格式
@@ -133,8 +138,12 @@ class HDCTI(herbRecommender):
         edge_indices = np.asarray([edge.row, edge.col], dtype=np.int64).T
         node_indices = np.asarray([node.row, node.col], dtype=np.int64).T
         # 构建稀疏张量表示边和节点
-        H_e = tf.SparseTensor(edge_indices, edge.data.astype(np.float32), edge.shape)
-        H_n = tf.SparseTensor(node_indices, node.data.astype(np.float32), node.shape)
+        H_e = tf.sparse_reorder(
+            tf.SparseTensor(edge_indices, edge.data.astype(np.float32), edge.shape)
+        )
+        H_n = tf.sparse_reorder(
+            tf.SparseTensor(node_indices, node.data.astype(np.float32), node.shape)
+        )
         
         # 获取 pd 的矩阵
         P_d = pd
@@ -143,9 +152,9 @@ class HDCTI(herbRecommender):
         # 计算 P_d 中每一列的和，并将其形状调整为 (1, -1)
         D_P_e = P_d.sum(axis=0).reshape(1, -1)
         # 计算边的矩阵
-        temp1 = (P_d.multiply(1.0 / D_P_e)).transpose()
+        temp1 = (P_d.multiply(safe_reciprocal(D_P_e))).transpose()
         # 计算节点的矩阵
-        temp2 = (P_d.transpose().multiply(1.0 / D_P_v)).transpose()
+        temp2 = (P_d.transpose().multiply(safe_reciprocal(D_P_v))).transpose()
         # 将边的矩阵转换为 COO 格式
         pd_edge = temp1.tocoo()
         # 将节点的矩阵转换为 COO 格式
@@ -154,8 +163,12 @@ class HDCTI(herbRecommender):
         A_pde = np.asarray([pd_edge.row, pd_edge.col], dtype=np.int64).T
         A_pdn = np.asarray([pd_node.row, pd_node.col], dtype=np.int64).T
         # 构建稀疏张量表示边和节点
-        P_e = tf.SparseTensor(A_pde, pd_edge.data.astype(np.float32), pd_edge.shape)
-        P_n = tf.SparseTensor(A_pdn, pd_node.data.astype(np.float32), pd_node.shape)
+        P_e = tf.sparse_reorder(
+            tf.SparseTensor(A_pde, pd_edge.data.astype(np.float32), pd_edge.shape)
+        )
+        P_n = tf.sparse_reorder(
+            tf.SparseTensor(A_pdn, pd_node.data.astype(np.float32), pd_node.shape)
+        )
 
 
 
@@ -168,6 +181,12 @@ class HDCTI(herbRecommender):
         self.n_layer = 2
         self.weights={}
         self.attention_weights = {}
+        self.use_context_interaction = (
+            self.config.contains('context.interaction')
+            and self.config['context.interaction'].strip().lower() in ('1', 'true', 'yes', 'on')
+        )
+        print('Candidate H-C/P-D context interaction: %s' %
+              ('enabled' if self.use_context_interaction else 'disabled'))
         attention_size = 64
         self.compound_attention_weights = []
         self.protein_attention_weights = []
@@ -234,6 +253,18 @@ class HDCTI(herbRecommender):
             self.weights['gating_bias%d' % (i + 1)] = tf.Variable(initializer([1, self.emb_size]),
                                                                        name='g_W_b_%d_1' % (i + 1))
 
+        if self.use_context_interaction:
+            # Zero initialization keeps the first forward pass equal to the dot-product baseline.
+            self.weights['context_compound_disease'] = tf.Variable(
+                tf.zeros([self.emb_size]), name='context_compound_disease'
+            )
+            self.weights['context_herb_protein'] = tf.Variable(
+                tf.zeros([self.emb_size]), name='context_herb_protein'
+            )
+            self.weights['context_herb_disease'] = tf.Variable(
+                tf.zeros([self.emb_size]), name='context_herb_disease'
+            )
+
         def multi_head_attention_compound(embeddings, attention_weights, num_heads, head_dim):
             if not use_compound_full_attention:
                 return embeddings
@@ -289,16 +320,27 @@ class HDCTI(herbRecommender):
         all_hc_embeddings = []
         all_pd_embeddings = []
 
-        dense_H_e = tf.sparse_tensor_to_dense(H_e, validate_indices=False)
-        dense_H_n = tf.sparse_tensor_to_dense(H_n, validate_indices=False)
-        dense_P_e = tf.sparse_tensor_to_dense(P_e, validate_indices=False)
-        dense_P_n = tf.sparse_tensor_to_dense(P_n, validate_indices=False)
-
         for i in range(self.n_layer):
-            new_hc_edge=tf.matmul(dense_H_e,compound_embeddings,a_is_sparse = True)
-            new_compound_embeddings = tf.matmul(dense_H_n,new_hc_edge,a_is_sparse = True)
-            new_pd_edge=tf.matmul(dense_P_e,protein_embeddings,a_is_sparse = True)
-            new_protein_embeddings = tf.matmul(dense_P_n,new_pd_edge,a_is_sparse = True)
+            new_hc_edge = tf.sparse_tensor_dense_matmul(
+                H_e,
+                compound_embeddings,
+                name='hc_node_to_edge_layer_%d' % (i + 1),
+            )
+            new_compound_embeddings = tf.sparse_tensor_dense_matmul(
+                H_n,
+                new_hc_edge,
+                name='hc_edge_to_node_layer_%d' % (i + 1),
+            )
+            new_pd_edge = tf.sparse_tensor_dense_matmul(
+                P_e,
+                protein_embeddings,
+                name='pd_node_to_edge_layer_%d' % (i + 1),
+            )
+            new_protein_embeddings = tf.sparse_tensor_dense_matmul(
+                P_n,
+                new_pd_edge,
+                name='pd_edge_to_node_layer_%d' % (i + 1),
+            )
             new_compound_embeddings = new_compound_embeddings * pr_compound_embeddings
             new_protein_embeddings = new_protein_embeddings * pr_protein_embeddings
         
@@ -376,13 +418,58 @@ class HDCTI(herbRecommender):
         self.final_hcedge=hc_edge
         self.final_pdedge=pd_edge
 
+        # Aggregate only the candidate's incident H-C/P-D hyperedges. No H-D or C-P labels are used here.
+        self.final_compound_context = tf.math.l2_normalize(
+            tf.sparse_tensor_dense_matmul(
+                H_n, self.final_hcedge, name='hc_candidate_context'
+            ),
+            axis=1,
+        )
+        self.final_protein_context = tf.math.l2_normalize(
+            tf.sparse_tensor_dense_matmul(
+                P_n, self.final_pdedge, name='pd_candidate_context'
+            ),
+            axis=1,
+        )
+
         # self.u_embedding = tf.nn.embedding_lookup(self.final_hcedge, self.u_idx)
         # self.v_embedding = tf.nn.embedding_lookup(self.final_pdedge, self.v_idx)
         self.u_embedding = tf.nn.embedding_lookup(self.final_uembedding, self.u_idx)
         self.v_embedding = tf.nn.embedding_lookup(self.final_iembedding, self.v_idx)
+        self.u_context_embedding = tf.nn.embedding_lookup(self.final_compound_context, self.u_idx)
+        self.v_context_embedding = tf.nn.embedding_lookup(self.final_protein_context, self.v_idx)
 
         #self.v_embedding = self.final_pdedge
 
+
+    def buildPairLogits(self):
+        logits = tf.reduce_sum(tf.multiply(self.u_embedding, self.v_embedding), 1)
+        if self.use_context_interaction:
+            logits += tf.reduce_sum(
+                self.u_embedding * self.v_context_embedding
+                * self.weights['context_compound_disease'], axis=1
+            )
+            logits += tf.reduce_sum(
+                self.u_context_embedding * self.v_embedding
+                * self.weights['context_herb_protein'], axis=1
+            )
+            logits += tf.reduce_sum(
+                self.u_context_embedding * self.v_context_embedding
+                * self.weights['context_herb_disease'], axis=1
+            )
+        return logits
+
+    def buildRegularizationLoss(self):
+        weight_decay = float(self.config['weight.reg']) if self.config.contains('weight.reg') else 0.01
+        return build_regularization_loss(
+            tf,
+            self.weights,
+            self.final_uembedding,
+            self.final_iembedding,
+            weight_decay,
+            self.regU,
+            self.regI,
+        )
 
     def trainModel(self):
         def format_duration(seconds):
@@ -396,18 +483,13 @@ class HDCTI(herbRecommender):
                 return '%dm%02ds' % (minutes, secs)
             return '%ds' % secs
 
-        logits = tf.reduce_sum(tf.multiply(self.u_embedding, self.v_embedding), 1)
+        logits = self.buildPairLogits()
         bce_loss = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(
             labels=self.neg_disease_embedding,
             logits=logits
         ))
 
-        reg_loss = 0
-        for key in self.weights:
-          
-            reg_loss += 0.01 * tf.nn.l2_loss(self.weights[key])
-        # reg_loss += self.regU * (tf.nn.l2_loss(self.final_hcedge) + tf.nn.l2_loss(self.final_pdedge))
-            reg_loss += self.regU * (tf.nn.l2_loss(self.final_iembedding) + tf.nn.l2_loss(self.final_uembedding))
+        reg_loss = self.buildRegularizationLoss()
         loss = bce_loss + reg_loss
 
         optimizer = tf.train.AdamOptimizer(self.lRate)
@@ -440,12 +522,29 @@ class HDCTI(herbRecommender):
                        format_duration(batch_time), format_duration(elapsed), format_duration(eta)))
             print('epoch %d/%d finished in %s' %
                   (epoch + 1, self.maxEpoch, format_duration(time() - epoch_start)))
-        self.u, self.i, self.weight = self.sess.run([self.final_uembedding, self.final_iembedding, self.weights],
-                                                        feed_dict={self.isTraining: 0})
+        self.u, self.i, self.u_context, self.i_context, self.weight = self.sess.run(
+            [
+                self.final_uembedding,
+                self.final_iembedding,
+                self.final_compound_context,
+                self.final_protein_context,
+                self.weights,
+            ],
+            feed_dict={self.isTraining: 0}
+        )
+        if self.use_context_interaction:
+            print('Context weight mean abs: C-Dctx %.6f, Hctx-P %.6f, Hctx-Dctx %.6f' % (
+                np.mean(np.abs(self.weight['context_compound_disease'])),
+                np.mean(np.abs(self.weight['context_herb_protein'])),
+                np.mean(np.abs(self.weight['context_herb_disease'])),
+            ))
         currentTime = strftime("%Y-%m-%d %H-%M-%S", localtime(time()))
         os.makedirs('./results', exist_ok=True)
         np.savetxt('./results/herbedgeDHCN_herb_embedding' + currentTime + '.txt', self.u)
         np.savetxt('./results/diseaseedgeDHCN_disease_embedding' + currentTime + '.txt', self.i)
+        if self.use_context_interaction:
+            np.savetxt('./results/compound_herb_context' + currentTime + '.txt', self.u_context)
+            np.savetxt('./results/protein_disease_context' + currentTime + '.txt', self.i_context)
         saver = tf.train.Saver()
         model_dir = os.path.join("./saved_model", currentTime)
         os.makedirs(model_dir, exist_ok=True)  # 创建目录（如果不存在）
@@ -458,4 +557,14 @@ class HDCTI(herbRecommender):
         print("模型权重保存成功: %s" % save_path)
     def predictForRanking(self):
         print('hdctipredict----------------------------------------------------------------------------')
+        if self.use_context_interaction:
+            return context_interaction_scores(
+                self.u,
+                self.i,
+                self.u_context,
+                self.i_context,
+                self.weight['context_compound_disease'],
+                self.weight['context_herb_protein'],
+                self.weight['context_herb_disease'],
+            )
         return self.u.dot(self.i.transpose())

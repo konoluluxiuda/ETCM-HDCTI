@@ -36,6 +36,14 @@ class herbRecommender(diseaseRecommender):
         self.batch_compound_emb = tf.nn.embedding_lookup(self.compound_embeddings, self.u_idx)
         self.batcsh_pos_protein_emb = tf.nn.embedding_lookup(self.protein_embeddings, self.v_idx)
         self.sess = tf.Session(config=make_session_config(tf, self.config))
+        gpu_devices = [
+            device for device in self.sess.list_devices()
+            if device.device_type == 'GPU'
+        ]
+        if gpu_devices:
+            print('TensorFlow training device: GPU (%s)' % gpu_devices[0].name)
+        else:
+            print('TensorFlow training device: CPU')
 
     def next_batch_pairwise(self):
         shuffle(self.data.trainingData)
@@ -78,4 +86,3 @@ class herbRecommender(diseaseRecommender):
 
     def predictForRanking(self,u):
         pass
-

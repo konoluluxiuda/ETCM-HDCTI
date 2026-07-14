@@ -52,9 +52,20 @@ class Recommender(object):
         print('Ratings dataset:', abspath(self.config['datapath']))
         if OptionConf(self.config['evaluation.setup']).contains('-testSet'):
             print('Test set:', abspath(OptionConf(self.config['evaluation.setup'])['-testSet']))
-        # print dataset statistics
-        print('Training set size: (herb count: %d, disease count %d, record count: %d)' % (self.data.trainingSize()))
-        print('Test set size: (herb count: %d, disease count %d, record count: %d)' % (self.data.testSize()))
+        train_compounds = len({str(record[0]) for record in self.data.trainingData})
+        train_proteins = len({str(record[1]) for record in self.data.trainingData})
+        test_compounds = len({str(record[0]) for record in self.data.testData})
+        test_proteins = len({str(record[1]) for record in self.data.testData})
+        print('Entity universe: herbs %d, compounds %d, proteins %d, diseases %d' % (
+            len(self.data.herb), len(self.data.compound),
+            len(self.data.protein), len(self.data.disease)
+        ))
+        print('Training pairs: %d (active compounds %d, proteins %d)' % (
+            len(self.data.trainingData), train_compounds, train_proteins
+        ))
+        print('Test pairs: %d (active compounds %d, proteins %d)' % (
+            len(self.data.testData), test_compounds, test_proteins
+        ))
         print('=' * 80)
         # print specific parameters if applicable
         if self.config.contains(self.config['model.name']):

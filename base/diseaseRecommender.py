@@ -28,9 +28,7 @@ class diseaseRecommender(Recommender):
         print('Regularization parameter: regU %.3f, regI %.3f, regB %.3f' %(self.regU,self.regI,self.regB))
 
     def initModel(self):
-        print('iter initModel-------------------------------------------------------')
         pass
-
 
 
 
