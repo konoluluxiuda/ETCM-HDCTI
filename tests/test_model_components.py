@@ -12,6 +12,7 @@ from util.model_components import (
     pair_decoder_scores,
     resolve_early_stopping,
     resolve_context_terms,
+    resolve_negative_sampling,
     resolve_pair_decoder,
 )
 
@@ -28,6 +29,26 @@ class DummyConf(object):
 
 
 class ModelComponentsTest(unittest.TestCase):
+    def test_negative_sampling_defaults_to_random(self):
+        settings = resolve_negative_sampling(DummyConf({}))
+        self.assertEqual(settings, {'strategy': 'random', 'hard_ratio': 0.25})
+
+    def test_negative_sampling_configuration_is_validated(self):
+        settings = resolve_negative_sampling(DummyConf({
+            'negative.strategy': 'mixed',
+            'negative.hard.ratio': '0.4',
+        }))
+        self.assertEqual(settings, {'strategy': 'mixed', 'hard_ratio': 0.4})
+        with self.assertRaisesRegex(ValueError, 'negative.strategy'):
+            resolve_negative_sampling(DummyConf({'negative.strategy': 'dynamic'}))
+        with self.assertRaisesRegex(ValueError, 'negative.hard.ratio'):
+            resolve_negative_sampling(DummyConf({'negative.hard.ratio': '1.1'}))
+        with self.assertRaisesRegex(ValueError, 'negative.hard.ratio'):
+            resolve_negative_sampling(DummyConf({
+                'negative.strategy': 'mixed',
+                'negative.hard.ratio': '0',
+            }))
+
     def test_pair_decoder_configuration_defaults_to_dot(self):
         settings = resolve_pair_decoder(DummyConf({}))
         self.assertEqual(settings['type'], 'dot')

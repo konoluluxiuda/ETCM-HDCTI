@@ -48,6 +48,67 @@ class StrictProtocolTest(unittest.TestCase):
             & {(row[0], row[1]) for row in first_validation}
         )
 
+    def test_mixed_training_negatives_are_deterministic_and_reserved_pair_safe(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            dataset_dir = Path(temporary_directory)
+            (dataset_dir / 'H_C.txt').write_text(
+                'h0\tc0\nh0\tc1\nh1\tc2\nh1\tc3\n', encoding='utf-8'
+            )
+            (dataset_dir / 'P_D.txt').write_text(
+                'p0\td0\np1\td0\np2\td1\np3\td1\n', encoding='utf-8'
+            )
+            records = [
+                ['c0', 'p0', 1.0], ['c1', 'p1', 1.0],
+                ['c2', 'p2', 1.0], ['c3', 'p3', 1.0],
+                ['c0', 'p3', 0.0], ['c1', 'p2', 0.0],
+                ['c2', 'p1', 0.0], ['c3', 'p0', 0.0],
+            ]
+            settings = {'strategy': 'mixed', 'hard_ratio': 0.5}
+            reserved_pairs = {('c0', 'p1')}
+
+            first, first_info = DataSplit.applyTrainingNegativeStrategy(
+                records,
+                settings,
+                dataset_dir,
+                reserved_pairs=reserved_pairs,
+                seed=91,
+                fold_index=0,
+                manifest_dir=dataset_dir / 'manifests',
+            )
+            second, second_info = DataSplit.applyTrainingNegativeStrategy(
+                list(reversed(records)),
+                settings,
+                dataset_dir,
+                reserved_pairs=reserved_pairs,
+                seed=91,
+                fold_index=0,
+                manifest_dir=dataset_dir / 'manifests_second',
+            )
+
+            self.assertEqual(first, second)
+            self.assertEqual(first_info['assignments_sha256'], second_info['assignments_sha256'])
+            self.assertEqual(first_info['hard_negative_count'], 2)
+            self.assertEqual(first_info['random_negative_count'], 2)
+            self.assertAlmostEqual(first_info['hard_ratio_actual'], 0.5)
+            self.assertNotIn(('c0', 'p1'), {(row[0], row[1]) for row in first})
+            self.assertEqual(sum(row[2] > 0 for row in first), 4)
+            self.assertEqual(sum(row[2] == 0 for row in first), 4)
+            self.assertTrue(Path(first_info['assignments_path']).exists())
+            self.assertTrue(Path(first_info['manifest_path']).exists())
+            assignment_text = Path(first_info['assignments_path']).read_text(encoding='utf-8')
+            self.assertIn('hard_', assignment_text)
+
+    def test_random_training_negative_strategy_preserves_records(self):
+        records = [['c0', 'p0', 1.0], ['c0', 'p1', 0.0]]
+        transformed, info = DataSplit.applyTrainingNegativeStrategy(
+            records,
+            {'strategy': 'random', 'hard_ratio': 0.25},
+            '.',
+            seed=7,
+        )
+        self.assertEqual(transformed, records)
+        self.assertEqual(info['strategy'], 'random')
+
     def test_strict_split_is_reused_and_balanced(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             dataset_dir = Path(temporary_directory)

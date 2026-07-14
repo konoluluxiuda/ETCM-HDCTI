@@ -93,6 +93,64 @@ def _write_atomic(path, content):
     os.replace(str(temp_path), str(path))
 
 
+def _records_sha256(records):
+    lines = [
+        '%s\t%s\t%d' % (str(left_id), str(right_id), int(float(label) > 0))
+        for left_id, right_id, label in records
+    ]
+    return hashlib.sha256(
+        ('\n'.join(sorted(lines)) + '\n').encode('utf-8')
+    ).hexdigest()
+
+
+def _pairs_sha256(pairs):
+    lines = ['%s\t%s' % (str(left_id), str(right_id)) for left_id, right_id in pairs]
+    return hashlib.sha256(
+        ('\n'.join(sorted(lines)) + '\n').encode('utf-8')
+    ).hexdigest()
+
+
+def _read_relation_pairs(path):
+    pairs = set()
+    with open(path, encoding='utf-8') as handle:
+        for line_number, line in enumerate(handle, start=1):
+            parts = line.strip().split()
+            if not parts:
+                continue
+            if len(parts) < 2:
+                raise ValueError('Invalid relation row %d in %s.' % (line_number, path))
+            pairs.add((str(parts[0]), str(parts[1])))
+    return pairs
+
+
+def _context_indices(pairs, entity_position):
+    entity_contexts = {}
+    context_entities = {}
+    for left_id, right_id in pairs:
+        entity_id, context_id = (
+            (right_id, left_id) if entity_position == 1 else (left_id, right_id)
+        )
+        entity_contexts.setdefault(entity_id, set()).add(context_id)
+        context_entities.setdefault(context_id, set()).add(entity_id)
+    return entity_contexts, context_entities
+
+
+def _rank_shared_context_peers(entity_id, entity_contexts, context_entities, allowed_ids):
+    contexts = entity_contexts.get(entity_id, set())
+    peers = set()
+    for context_id in contexts:
+        peers.update(context_entities.get(context_id, set()))
+    peers.discard(entity_id)
+    peers.intersection_update(allowed_ids)
+
+    def similarity(peer_id):
+        peer_contexts = entity_contexts.get(peer_id, set())
+        union_size = len(contexts | peer_contexts)
+        return 0.0 if union_size == 0 else len(contexts & peer_contexts) / float(union_size)
+
+    return sorted(peers, key=lambda peer_id: (-similarity(peer_id), str(peer_id)))
+
+
 class DataSplit(object):
 
     def __init__(self):
@@ -184,6 +242,170 @@ class DataSplit(object):
             'assignments_sha256': assignment_hash,
         }
         return inner_train, validation, info
+
+    @staticmethod
+    def applyTrainingNegativeStrategy(
+            data,
+            settings,
+            dataset_dir,
+            reserved_pairs=None,
+            seed=202026,
+            fold_index=0,
+            manifest_dir=None):
+        strategy = settings['strategy']
+        hard_ratio = float(settings['hard_ratio'])
+        if strategy == 'random':
+            return [row[:] for row in data], {
+                'strategy': 'random',
+                'seed': int(seed),
+                'hard_ratio': 0.0,
+                'records_sha256': _records_sha256(data),
+            }
+        if strategy != 'mixed':
+            raise ValueError('Unsupported training negative strategy: %s.' % strategy)
+
+        dataset_dir = Path(dataset_dir).resolve()
+        hc_path_value = resolve_optional_dataset_file(
+            str(dataset_dir), SIDE_RELATION_FILE_CANDIDATES['H_C']
+        )
+        pd_path_value = resolve_optional_dataset_file(
+            str(dataset_dir), SIDE_RELATION_FILE_CANDIDATES['P_D']
+        )
+        if not hc_path_value or not pd_path_value:
+            raise FileNotFoundError('Mixed negative sampling requires H-C and P-D relation files.')
+        hc_path = Path(hc_path_value).resolve()
+        pd_path = Path(pd_path_value).resolve()
+
+        positives = sorted(
+            _deduplicate(data, positive=True), key=lambda row: (row[0], row[1])
+        )
+        random_negatives = sorted(
+            _deduplicate(data, positive=False), key=lambda row: (row[0], row[1])
+        )
+        if not positives or not random_negatives:
+            raise ValueError('Mixed negative sampling requires positive and random negative records.')
+
+        positive_pairs = {(row[0], row[1]) for row in positives}
+        original_negative_pairs = {(row[0], row[1]) for row in random_negatives}
+        reserved_pairs = {
+            (str(left_id), str(right_id)) for left_id, right_id in (reserved_pairs or set())
+        }
+        blocked_pairs = positive_pairs | original_negative_pairs | reserved_pairs
+        allowed_left_ids = {str(row[0]) for row in data}
+        allowed_right_ids = {str(row[1]) for row in data}
+
+        compound_contexts, herb_compounds = _context_indices(
+            _read_relation_pairs(hc_path), entity_position=1
+        )
+        protein_contexts, disease_proteins = _context_indices(
+            _read_relation_pairs(pd_path), entity_position=0
+        )
+
+        rng = random.Random(int(seed))
+        ordered_positives = sorted(positives, key=lambda row: (row[0], row[1]))
+        rng.shuffle(ordered_positives)
+        desired_hard_count = int(round(len(random_negatives) * hard_ratio))
+        hard_records = []
+        hard_pairs = set()
+        hard_pair_sources = {}
+        source_counts = {'H_C': 0, 'P_D': 0}
+        compound_peer_cache = {}
+        protein_peer_cache = {}
+
+        def compound_peers(compound_id):
+            if compound_id not in compound_peer_cache:
+                compound_peer_cache[compound_id] = _rank_shared_context_peers(
+                    compound_id, compound_contexts, herb_compounds, allowed_left_ids
+                )
+            return compound_peer_cache[compound_id]
+
+        def protein_peers(protein_id):
+            if protein_id not in protein_peer_cache:
+                protein_peer_cache[protein_id] = _rank_shared_context_peers(
+                    protein_id, protein_contexts, disease_proteins, allowed_right_ids
+                )
+            return protein_peer_cache[protein_id]
+
+        for index, (compound_id, protein_id, _) in enumerate(ordered_positives):
+            if len(hard_records) >= desired_hard_count:
+                break
+            directions = ('P_D', 'H_C') if index % 2 == 0 else ('H_C', 'P_D')
+            selected_pair = None
+            selected_source = None
+            for source in directions:
+                if source == 'P_D':
+                    candidates = ((compound_id, peer_id) for peer_id in protein_peers(protein_id))
+                else:
+                    candidates = ((peer_id, protein_id) for peer_id in compound_peers(compound_id))
+                for pair in candidates:
+                    if pair in blocked_pairs or pair in hard_pairs:
+                        continue
+                    selected_pair = pair
+                    selected_source = source
+                    break
+                if selected_pair is not None:
+                    break
+            if selected_pair is None:
+                continue
+            hard_pairs.add(selected_pair)
+            hard_pair_sources[selected_pair] = selected_source
+            hard_records.append([selected_pair[0], selected_pair[1], 0.0])
+            source_counts[selected_source] += 1
+
+        ordered_random_negatives = sorted(
+            random_negatives, key=lambda row: (row[0], row[1])
+        )
+        rng.shuffle(ordered_random_negatives)
+        retained_random_count = len(random_negatives) - len(hard_records)
+        retained_random = ordered_random_negatives[:retained_random_count]
+        transformed = positives + retained_random + hard_records
+        rng.shuffle(transformed)
+
+        assignment_rows = []
+        assignment_rows.extend((row[0], row[1], 1, 'positive') for row in positives)
+        assignment_rows.extend((row[0], row[1], 0, 'random') for row in retained_random)
+        hard_sources = {}
+        for source, count in source_counts.items():
+            if count:
+                hard_sources[source] = count
+        for row in hard_records:
+            source = hard_pair_sources[(row[0], row[1])]
+            assignment_rows.append((row[0], row[1], 0, 'hard_' + source.lower()))
+        assignment_content = 'left_id\tright_id\tlabel\tnegative_type\n' + ''.join(
+            '%s\t%s\t%d\t%s\n' % row for row in sorted(assignment_rows)
+        )
+        assignment_hash = hashlib.sha256(assignment_content.encode('utf-8')).hexdigest()
+        info = {
+            'version': 1,
+            'strategy': 'mixed',
+            'seed': int(seed),
+            'fold': int(fold_index),
+            'hard_ratio_requested': hard_ratio,
+            'hard_ratio_actual': len(hard_records) / float(len(random_negatives)),
+            'positive_count': len(positives),
+            'negative_count': len(random_negatives),
+            'random_negative_count': len(retained_random),
+            'hard_negative_count': len(hard_records),
+            'hard_source_counts': hard_sources,
+            'input_records_sha256': _records_sha256(data),
+            'reserved_pairs_sha256': _pairs_sha256(reserved_pairs),
+            'assignments_sha256': assignment_hash,
+            'sources': {
+                'H_C': {'path': str(hc_path), 'sha256': _sha256(hc_path)},
+                'P_D': {'path': str(pd_path), 'sha256': _sha256(pd_path)},
+            },
+        }
+        if manifest_dir is not None:
+            output_dir = Path(manifest_dir) / (
+                'mixed_seed_%d_ratio_%s' % (int(seed), str(hard_ratio).replace('.', 'p'))
+            )
+            assignments_path = output_dir / ('fold_%d.tsv' % int(fold_index))
+            manifest_path = output_dir / ('fold_%d.json' % int(fold_index))
+            _write_atomic(assignments_path, assignment_content)
+            info['assignments_path'] = str(assignments_path)
+            _write_atomic(manifest_path, json.dumps(info, ensure_ascii=False, indent=2) + '\n')
+            info['manifest_path'] = str(manifest_path)
+        return transformed, info
 
     @staticmethod
     def prepareStrictFolds(conf, datapath, k):

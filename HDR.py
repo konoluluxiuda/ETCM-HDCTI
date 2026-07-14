@@ -9,7 +9,7 @@ import numpy as np
 import mkl
 
 from util.reproducibility import set_global_seed
-from util.model_components import resolve_early_stopping
+from util.model_components import resolve_early_stopping, resolve_negative_sampling
 
 
 class HDR(object):
@@ -23,8 +23,11 @@ class HDR(object):
         self.strictManifest = None
         self.ratingConfig = OptionConf(config['ratings.setup'])
         self.earlyStopping = resolve_early_stopping(config)
+        self.negativeSampling = resolve_negative_sampling(config)
         if self.earlyStopping['enabled'] and self.protocol != 'strict':
             raise ValueError('Inner-validation early stopping currently requires experiment.protocol=strict.')
+        if self.negativeSampling['strategy'] != 'random' and self.protocol != 'strict':
+            raise ValueError('Mixed negative sampling requires experiment.protocol=strict.')
         if self.config.contains('evaluation.setup'):
             self.evaluation = OptionConf(config['evaluation.setup'])
             if self.protocol == 'strict':
@@ -86,6 +89,10 @@ class HDR(object):
                 int(self.config['validation.seed'])
                 if self.config.contains('validation.seed') else base_seed + 100000
             )
+            negative_seed_base = (
+                int(self.config['negative.seed'])
+                if self.config.contains('negative.seed') else base_seed + 200000
+            )
             for train, test in folds:
                 if i > fold_limit:
                     break
@@ -104,6 +111,33 @@ class HDR(object):
                             validation_info['validation_records'],
                             validation_info['seed'],
                             validation_info['assignments_sha256'][:12],
+                        )
+                    )
+                if self.negativeSampling['strategy'] != 'random':
+                    reserved_pairs = {
+                        (str(row[0]), str(row[1])) for row in validation + test
+                    }
+                    split_dir = os.path.dirname(self.strictManifest['assignments_path'])
+                    train_for_model, negative_info = DataSplit.applyTrainingNegativeStrategy(
+                        train_for_model,
+                        self.negativeSampling,
+                        dataset_dir,
+                        reserved_pairs=reserved_pairs,
+                        seed=negative_seed_base + i - 1,
+                        fold_index=i - 1,
+                        manifest_dir=os.path.join(split_dir, 'training_negatives'),
+                    )
+                    print(
+                        'Fold %d training negatives: mixed random=%d hard=%d '
+                        '(H-C=%d, P-D=%d), actual_ratio=%.4f, seed=%d, hash=%s.' % (
+                            i,
+                            negative_info['random_negative_count'],
+                            negative_info['hard_negative_count'],
+                            negative_info['hard_source_counts'].get('H_C', 0),
+                            negative_info['hard_source_counts'].get('P_D', 0),
+                            negative_info['hard_ratio_actual'],
+                            negative_info['seed'],
+                            negative_info['assignments_sha256'][:12],
                         )
                     )
                 recommender = self.config['model.name'] + "(self.config,train_for_model,test,fold)"

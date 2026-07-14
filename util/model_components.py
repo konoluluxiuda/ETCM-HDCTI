@@ -54,6 +54,27 @@ def resolve_early_stopping(config):
     return settings
 
 
+def resolve_negative_sampling(config):
+    strategy = (
+        str(config['negative.strategy']).strip().lower()
+        if config.contains('negative.strategy') else 'random'
+    )
+    if strategy not in {'random', 'mixed'}:
+        raise ValueError('negative.strategy must be random or mixed.')
+    hard_ratio = (
+        float(config['negative.hard.ratio'])
+        if config.contains('negative.hard.ratio') else 0.25
+    )
+    if not 0.0 <= hard_ratio <= 1.0:
+        raise ValueError('negative.hard.ratio must be between 0 and 1.')
+    if strategy == 'mixed' and hard_ratio == 0.0:
+        raise ValueError('negative.hard.ratio must be positive for mixed sampling.')
+    return {
+        'strategy': strategy,
+        'hard_ratio': hard_ratio,
+    }
+
+
 def resolve_pair_decoder(config):
     decoder_type = (
         str(config['pair.decoder']).strip().lower()
