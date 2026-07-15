@@ -228,3 +228,42 @@ HerbOnly 的 AUC、AUPR、Precision 和 F1 均在 5/5 折提高，Recall 在 5/5
 ```
 
 原 50 epoch 配置保留为已完成实验快照，不覆盖、不改名。HerbOnly 的五折均在 epoch 34 前停止，不受 50 epoch 上限约束，因此本轮不重复运行。
+
+### 8.4 Max-80 收敛审查结果
+
+无上下文基线提高到 80 epoch 后的结果为：
+
+| 指标 | Max-50 基线 | Max-80 基线 | Max-80 - Max-50 | HerbOnly - Max-80 |
+|---|---:|---:|---:|---:|
+| AUC | 0.968728 | 0.971097 | +0.002369 | +0.006738 |
+| AUPR | 0.963390 | 0.966143 | +0.002753 | +0.007812 |
+| Recall | 0.951725 | 0.952144 | +0.000419 | -0.013288 |
+| Precision | 0.875926 | 0.884684 | +0.008758 | +0.041159 |
+| F1-score | 0.912251 | 0.917164 | +0.004913 | +0.015132 |
+
+Max-80 五折最佳 epoch 为 `[80, 78, 80, 76, 76]`，没有任何一折触发 early stopping。虽然基线改善后 HerbOnly 的 AUC、AUPR、Precision 和 F1 仍为 5/5 折提高，但训练上限仍然生效，最终效应量继续保持暂定状态。
+
+Max-80 已耗时 `3298.530841 s`（约 55 分钟）。考虑计算预算，不直接安排 Max-120 完整五折；Max-80 作为训练预算敏感性结果保留，并明确报告基线仍在缓慢改善这一限制。进一步的平台期检查改用只运行 fold 1、跳过外层测试的诊断配置：
+
+```bash
+./run_hdcti.sh configs/HDCTI_etcm_mention10_no_context_early_stop_max120_pilot.conf \
+  | tee log/etcm_mention10_no_context_early_stop_max120_pilot_seed2026.log
+```
+
+该 pilot 约为完整五折成本的 1/5，只用于观察 validation 曲线是否在 120 前形成完整 patience 窗口，不生成或查看 outer-test 指标。完整 Max-120 五折不再安排。
+
+### 8.5 Max-120 Fold 1 诊断结果
+
+该 pilot 于 2026-07-15 完成，运行时间 `991.927255 s`，按配置跳过 outer-test。无上下文基线的 validation 轨迹为：
+
+| Epoch | Validation AUPR |
+|---:|---:|
+| 20 | 0.956264 |
+| 50 | 0.964723 |
+| 80 | 0.968406 |
+| 100 | 0.971073 |
+| 120 | 0.973563 |
+
+epoch 120 仍为新的最佳 checkpoint，说明基线尚未形成平台期。与同一 fold 的 HerbOnly 相比，HerbOnly 在 epoch 34 已达到 validation AUPR `0.975782`，仍高出 `0.002219`，且所需 epoch 约为基线当前上限的 `28.3%`。
+
+至此停止继续提高 epoch。现有证据支持 Hctx-P 在固定计算预算下提高性能并显著加快优化，但不足以断言其相对“无限训练至收敛”的基线仍具有相同幅度的最终表示优势。论文应同时报告 Max-50 匹配协议、Max-80 预算敏感性和本单折收敛诊断，不将 pilot validation 指标与五折 outer-test 指标混合汇总。
