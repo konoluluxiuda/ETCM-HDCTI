@@ -498,3 +498,9 @@ Fold 5 的 Hctx-P 权重平均绝对值为 `1.079263`，C-Dctx 和 Hctx-Dctx 均
 与双项 `C-Dctx + Hctx-P` 比较，HerbOnly 的 AUC、AUPR、Precision 和 F1 分别提高 `0.001186`、`0.001656`、`0.005112` 和 `0.000810`，Recall 降低 `0.003511`。AUC、AUPR 和 Precision 均为 5/5 折提高，F1 为 3/5 折提高。加入 C-Dctx 没有形成正向协同，反而削弱了 Hctx-P 的排序收益。
 
 最终结论：当前 TCMSP Strict 结果支持保留 **HerbOnly（Hctx-P）**，删除 C-Dctx 和 Hctx-Dctx。该结论基于同一组固定五折的配对方向与效应大小；五个交叉验证 fold 不是五次独立重复，因此不把 fold 标准差或小样本显著性检验解释为训练随机性证据。最终投稿结果仍需在预先选定的外部数据集或多 seed 实验中验证。
+
+## 冻结决定
+
+2026-07-15 完成 ETCM2.0_core_mention10 的 Max-80 收敛对照、checkpoint 分组机制分析和 inner-validation 阈值校准后，静态 Hctx-P 正式冻结。后续不再向该版本加入 H-C/mention gate、degree-aware calibration、C-Dctx 或 Hctx-Dctx；固定 `0.5` 结果保留用于原协议比较，验证集阈值结果只作为补充校准分析。
+
+第二创新使用独立 `target_attention` 模式尝试靶点条件化药材上下文注意力。关闭新模式时必须保持本节静态 Hctx-P 的图结构、参数和 checkpoint 兼容性。设计见 [TARGET_CONDITIONED_HERB_ATTENTION.md](TARGET_CONDITIONED_HERB_ATTENTION.md)。
