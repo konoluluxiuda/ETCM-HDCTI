@@ -271,3 +271,42 @@ saved_model/2026-07-15 22-14-28/hdcti_model.ckpt
 五折运行时间为 `1602.395324 s`。静态 Hctx-P 对照用时 `1760.008411 s`，但两者早停 epoch 不同，因此不能据此声称 CHCR 单 epoch 更快。
 
 TCMSP 的 AUC/AUPR 增益小于 ETCM mention10，但两项均在 5/5 折同向，支持 CHCR 排名作用具有初步跨数据集泛化。Precision 和 F1 的方向不稳定，说明固定 `0.5` 阈值下的分类增益较弱；当前不为此修改阈值或 CHCR 参数。最终稳定性结论仍需多个训练 seed，不能把两套固定五折当作独立重复实验。
+
+## 11. ETCM 多 seed 稳定性协议
+
+多 seed 实验固定 ETCM mention10 的数据划分和验证集，只改变模型初始化与训练随机性：
+
+```ini
+split.seed=2026
+split.dir=./dataset/ETCM2.0_core_mention10/splits/strict_seed_2026_k5
+validation.seed=102026
+counterfactual.seed=42026
+random.seed=2026, 2027, 2028
+```
+
+`split.seed` 与 `random.seed` 已在代码中解耦。前者控制负样本和 outer folds，后者控制各 fold 的 Python、NumPy 与 TensorFlow 随机状态；因此改变训练 seed 不会创建或覆盖 split manifest。seed 2026 的静态 Hctx-P 与 CHCR 五折已经完成，新增运行配置为：
+
+```text
+configs/HDCTI_etcm_mention10_herb_only_seed2027.conf
+configs/HDCTI_etcm_mention10_chcr_seed2027.conf
+configs/HDCTI_etcm_mention10_herb_only_seed2028.conf
+configs/HDCTI_etcm_mention10_chcr_seed2028.conf
+```
+
+可以逐个运行，也可以顺序执行：
+
+```bash
+./run_etcm_chcr_multiseed.sh
+```
+
+统计时先计算每个 seed 的五折均值，再计算 3 个 seed 均值的总体均值和 sample standard deviation。15 个 fold 不能视为 15 次独立重复。主指标为每个 seed 内配对的 AUPR 差值，AUC 为共同主排序指标，Recall/Precision/F1 为固定阈值补充指标。
+
+预注册解释规则：
+
+| 结果 | 解释 |
+|---|---|
+| 3/3 seed 的 AUPR 均值增益均为正 | 强稳定性支持 |
+| 2/3 为正且三 seed 总体均值增益为正 | 有限稳定性支持，报告异质性 |
+| 少于 2/3 为正或总体均值不为正 | 不支持稳定增益，CHCR 降为数据集依赖增强 |
+
+无论结果如何，不调整 donor 规则、weight、margin、draws、早停参数或 decoder。

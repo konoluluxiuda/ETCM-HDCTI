@@ -412,7 +412,13 @@ class DataSplit(object):
         if k <= 1 or k > 10:
             raise ValueError('Strict cross-validation requires k between 2 and 10.')
 
-        seed = int(conf['random.seed']) if conf.contains('random.seed') else 2026
+        seed = (
+            int(conf['split.seed'])
+            if conf.contains('split.seed')
+            else int(conf['random.seed'])
+            if conf.contains('random.seed')
+            else 2026
+        )
         dataset_path = Path(datapath).resolve()
         dataset_dir = dataset_path.parent
         if conf.contains('split.dir'):

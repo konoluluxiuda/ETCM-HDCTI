@@ -37,7 +37,7 @@ class HDR(object):
                 self.strictFolds, self.strictManifest = DataSplit.prepareStrictFolds(
                     config, config['datapath'], k
                 )
-                print('Strict protocol seed: %d' % self.strictManifest['seed'])
+                print('Strict split seed: %d' % self.strictManifest['seed'])
             elif self.protocol == 'legacy':
                 self.trainingData = FileIO.loadDataSet(config, config['datapath'])
             else:

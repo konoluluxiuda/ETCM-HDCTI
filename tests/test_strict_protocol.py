@@ -160,6 +160,44 @@ class StrictProtocolTest(unittest.TestCase):
             self.assertEqual(first_folds, rebuilt_folds)
             self.assertEqual(first_manifest['assignments_sha256'], rebuilt_manifest['assignments_sha256'])
 
+    def test_split_seed_is_independent_from_training_seed(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            dataset_dir = Path(temporary_directory)
+            datapath = dataset_dir / 'ONE_indices.txt'
+            datapath.write_text(
+                'c0\tp0\t1\nc1\tp1\t1\nc2\tp0\t1\nc3\tp1\t1\n',
+                encoding='utf-8',
+            )
+            split_dir = dataset_dir / 'strict_split'
+            conf = DummyConf({
+                'ratings.setup': '-columns 0 1 2',
+                'split.seed': '17',
+                'random.seed': '2026',
+                'split.dir': str(split_dir),
+                'split.reuse': 'True',
+            })
+
+            first_folds, first_manifest = DataSplit.prepareStrictFolds(
+                conf, str(datapath), 2
+            )
+            first_assignments = (split_dir / 'fold_assignments.tsv').read_bytes()
+            conf.config['random.seed'] = '2027'
+            second_folds, second_manifest = DataSplit.prepareStrictFolds(
+                conf, str(datapath), 2
+            )
+
+            self.assertEqual(first_manifest['seed'], 17)
+            self.assertEqual(first_manifest, second_manifest)
+            self.assertEqual(first_folds, second_folds)
+            self.assertEqual(
+                first_assignments,
+                (split_dir / 'fold_assignments.tsv').read_bytes(),
+            )
+
+            conf.config['split.seed'] = '18'
+            with self.assertRaisesRegex(ValueError, 'seed'):
+                DataSplit.prepareStrictFolds(conf, str(datapath), 2)
+
     def test_strict_manifest_rejects_changed_source(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             dataset_dir = Path(temporary_directory)
