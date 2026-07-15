@@ -210,6 +210,7 @@ def main():
     model.i = state['protein']
     model.u_context = state['compound_context']
     model.i_context = state['protein_context']
+    model.herb_edge = state['herb_edge']
     model.weight = state['weights']
     print('Checkpoint restored; one inference forward pass completed.')
 

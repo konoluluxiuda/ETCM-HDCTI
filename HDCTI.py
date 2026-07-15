@@ -26,7 +26,9 @@ from util.model_components import (
     context_interaction_pair_scores,
     resolve_context_terms,
     resolve_early_stopping,
+    resolve_herb_context_attention,
     resolve_pair_decoder,
+    target_conditioned_herb_contexts,
 )
 from sklearn.metrics import average_precision_score, roc_auc_score
 # tf.compat.v1.set_random_seed(4321)
@@ -152,6 +154,28 @@ class HDCTI(herbRecommender):
         H_n = tf.sparse_reorder(
             tf.SparseTensor(node_indices, node.data.astype(np.float32), node.shape)
         )
+        compound_herbs = [[] for _ in range(self.num_compounds)]
+        hc_coo = hc.tocoo()
+        for herb_index, compound_index in zip(hc_coo.row, hc_coo.col):
+            compound_herbs[int(compound_index)].append(int(herb_index))
+        compound_herbs = [sorted(set(indices)) for indices in compound_herbs]
+        self.max_compound_herbs = max(
+            [len(indices) for indices in compound_herbs] + [1]
+        )
+        herb_sentinel = self.num_herbs
+        self.compound_herb_indices = np.full(
+            (self.num_compounds, self.max_compound_herbs),
+            herb_sentinel,
+            dtype=np.int32,
+        )
+        self.compound_herb_mask = np.zeros(
+            (self.num_compounds, self.max_compound_herbs), dtype=np.float32
+        )
+        for compound_index, herb_indices in enumerate(compound_herbs):
+            degree = len(herb_indices)
+            if degree:
+                self.compound_herb_indices[compound_index, :degree] = herb_indices
+                self.compound_herb_mask[compound_index, :degree] = 1.0
         
         # 获取 pd 的矩阵
         P_d = pd
@@ -191,12 +215,25 @@ class HDCTI(herbRecommender):
         self.attention_weights = {}
         self.context_terms = resolve_context_terms(self.config)
         self.use_context_interaction = any(self.context_terms.values())
+        self.herb_context_attention = resolve_herb_context_attention(self.config)
+        if (
+            self.herb_context_attention['mode'] == 'target_attention'
+            and not self.context_terms['herb_protein']
+        ):
+            raise ValueError(
+                'target_attention requires context.herb_protein=True.'
+            )
         self.pair_decoder = resolve_pair_decoder(self.config)
         print(
             'Candidate context terms: C-Dctx=%s, Hctx-P=%s, Hctx-Dctx=%s' % (
                 'on' if self.context_terms['compound_disease'] else 'off',
                 'on' if self.context_terms['herb_protein'] else 'off',
                 'on' if self.context_terms['herb_disease'] else 'off',
+            )
+        )
+        print(
+            'Herb context mode: %s (max incident herbs=%d)' % (
+                self.herb_context_attention['mode'], self.max_compound_herbs
             )
         )
         print('Pair decoder: %s' % self.pair_decoder['type'])
@@ -276,6 +313,15 @@ class HDCTI(herbRecommender):
             )
             self.weights['context_herb_disease'] = tf.Variable(
                 tf.zeros([self.emb_size]), name='context_herb_disease'
+            )
+        if self.herb_context_attention['mode'] == 'target_attention':
+            self.weights['target_herb_projection'] = tf.Variable(
+                tf.eye(self.emb_size, dtype=tf.float32),
+                name='target_herb_projection',
+            )
+            self.weights['target_protein_projection'] = tf.Variable(
+                tf.eye(self.emb_size, dtype=tf.float32),
+                name='target_protein_projection',
             )
 
         if self.pair_decoder['type'] == 'bilinear':
@@ -472,6 +518,64 @@ class HDCTI(herbRecommender):
         self.v_embedding = tf.nn.embedding_lookup(self.final_iembedding, self.v_idx)
         self.u_context_embedding = tf.nn.embedding_lookup(self.final_compound_context, self.u_idx)
         self.v_context_embedding = tf.nn.embedding_lookup(self.final_protein_context, self.v_idx)
+        self.target_herb_attention_weights = None
+        if self.herb_context_attention['mode'] == 'target_attention':
+            padded_herb_edges = tf.concat(
+                [
+                    self.final_hcedge,
+                    tf.zeros([1, self.emb_size], dtype=tf.float32),
+                ],
+                axis=0,
+            )
+            pair_herb_indices = tf.gather(
+                tf.constant(self.compound_herb_indices, dtype=tf.int32),
+                self.u_idx,
+            )
+            pair_herb_mask = tf.gather(
+                tf.constant(self.compound_herb_mask, dtype=tf.float32),
+                self.u_idx,
+            )
+            pair_herb_edges = tf.gather(padded_herb_edges, pair_herb_indices)
+            pair_herb_edges.set_shape(
+                [None, self.max_compound_herbs, self.emb_size]
+            )
+            herb_keys = tf.tensordot(
+                pair_herb_edges,
+                self.weights['target_herb_projection'],
+                axes=[[2], [0]],
+            )
+            herb_keys.set_shape([None, self.max_compound_herbs, self.emb_size])
+            protein_queries = tf.matmul(
+                self.v_embedding, self.weights['target_protein_projection']
+            )
+            attention_logits = tf.reduce_sum(
+                herb_keys * tf.expand_dims(protein_queries, axis=1), axis=2
+            )
+            attention_logits.set_shape([None, self.max_compound_herbs])
+            attention_logits /= (
+                tf.sqrt(tf.cast(self.emb_size, tf.float32))
+                * self.herb_context_attention['temperature']
+            )
+            masked_logits = tf.where(
+                pair_herb_mask > 0,
+                attention_logits,
+                tf.fill(tf.shape(attention_logits), tf.constant(-1e9, tf.float32)),
+            )
+            masked_logits = tf.reshape(
+                masked_logits, [-1, self.max_compound_herbs]
+            )
+            attention_weights = tf.nn.softmax(masked_logits, axis=-1) * pair_herb_mask
+            attention_weights /= (
+                tf.reduce_sum(attention_weights, axis=1, keepdims=True) + 1e-12
+            )
+            self.target_herb_attention_weights = attention_weights
+            self.u_context_embedding = tf.math.l2_normalize(
+                tf.reduce_sum(
+                    tf.expand_dims(attention_weights, axis=2) * pair_herb_edges,
+                    axis=1,
+                ),
+                axis=1,
+            )
 
         #self.v_embedding = self.final_pdedge
 
@@ -547,9 +651,27 @@ class HDCTI(herbRecommender):
                 'protein': self.final_iembedding,
                 'compound_context': self.final_compound_context,
                 'protein_context': self.final_protein_context,
+                'herb_edge': self.final_hcedge,
                 'weights': self.weights,
             },
             feed_dict={self.isTraining: 0},
+        )
+
+    def targetConditionedHerbContexts(
+            self, state, compound_indices, protein_indices):
+        if self.herb_context_attention['mode'] != 'target_attention':
+            return None, None
+        weights = state['weights']
+        return target_conditioned_herb_contexts(
+            state['herb_edge'],
+            self.compound_herb_indices,
+            self.compound_herb_mask,
+            state['protein'],
+            compound_indices,
+            protein_indices,
+            weights['target_herb_projection'],
+            weights['target_protein_projection'],
+            temperature=self.herb_context_attention['temperature'],
         )
 
     def evaluateValidation(self, state, metric):
@@ -576,6 +698,9 @@ class HDCTI(herbRecommender):
             raise ValueError('Inner validation must contain both positive and negative records.')
         zero_weight = np.zeros(self.emb_size, dtype=np.float32)
         weights = state['weights']
+        pair_compound_contexts, _ = self.targetConditionedHerbContexts(
+            state, compound_indices, protein_indices
+        )
         logits = context_interaction_pair_scores(
             state['compound'],
             state['protein'],
@@ -589,6 +714,7 @@ class HDCTI(herbRecommender):
             enabled_terms=self.context_terms,
             decoder_type=self.pair_decoder['type'],
             decoder_weights=weights,
+            pair_compound_contexts=pair_compound_contexts,
         )
         scores = 1.0 / (1.0 + np.exp(-np.clip(logits, -50, 50)))
         if metric == 'aupr':
@@ -725,6 +851,7 @@ class HDCTI(herbRecommender):
         self.i = state['protein']
         self.u_context = state['compound_context']
         self.i_context = state['protein_context']
+        self.herb_edge = state['herb_edge']
         self.weight = state['weights']
         if self.use_context_interaction:
             context_weight_values = {
@@ -740,7 +867,68 @@ class HDCTI(herbRecommender):
                 '%.6f' % context_weight_values['herb_disease']
                 if self.context_terms['herb_disease'] else 'off',
             ))
+        self.target_attention_summary = None
+        if (
+            self.herb_context_attention['mode'] == 'target_attention'
+            and self.validationData
+        ):
+            validation_compounds = [
+                self.data.compound[str(row[0])] for row in self.validationData
+            ]
+            validation_proteins = [
+                self.data.protein[str(row[1])] for row in self.validationData
+            ]
+            _, validation_attention = self.targetConditionedHerbContexts(
+                state, validation_compounds, validation_proteins
+            )
+            entropy = -np.sum(
+                validation_attention
+                * np.log(np.clip(validation_attention, 1e-12, 1.0)),
+                axis=1,
+            )
+            self.target_attention_summary = {
+                'validation_pairs': len(validation_compounds),
+                'expanded_incidences': int(np.sum(
+                    self.compound_herb_mask[validation_compounds]
+                )),
+                'mean_entropy': float(np.mean(entropy)),
+                'mean_max_weight': float(np.mean(np.max(validation_attention, axis=1))),
+            }
+            print(
+                'Target herb attention: validation_pairs=%d incidences=%d '
+                'mean_entropy=%.6f mean_max_weight=%.6f' % (
+                    self.target_attention_summary['validation_pairs'],
+                    self.target_attention_summary['expanded_incidences'],
+                    self.target_attention_summary['mean_entropy'],
+                    self.target_attention_summary['mean_max_weight'],
+                )
+            )
         os.makedirs('./results', exist_ok=True)
+        if self.target_attention_summary is not None:
+            attention_path = (
+                './results/target_attention_top_herbs' + currentTime + '.tsv'
+            )
+            with open(attention_path, 'w', encoding='utf-8') as handle:
+                handle.write(
+                    'compound_id\tprotein_id\tlabel\trank\therb_id\tattention\n'
+                )
+                for pair_index, row in enumerate(self.validationData):
+                    compound_index = validation_compounds[pair_index]
+                    active_count = int(np.sum(
+                        self.compound_herb_mask[compound_index]
+                    ))
+                    active_weights = validation_attention[pair_index, :active_count]
+                    top_positions = np.argsort(active_weights)[::-1][:3]
+                    for rank, position in enumerate(top_positions, start=1):
+                        herb_index = int(
+                            self.compound_herb_indices[compound_index, position]
+                        )
+                        handle.write('%s\t%s\t%s\t%d\t%s\t%.8f\n' % (
+                            row[0], row[1], row[2], rank,
+                            self.data.id2herb[herb_index],
+                            active_weights[position],
+                        ))
+            print('Target herb attention details: %s' % attention_path)
         np.savetxt('./results/herbedgeDHCN_herb_embedding' + currentTime + '.txt', self.u)
         np.savetxt('./results/diseaseedgeDHCN_disease_embedding' + currentTime + '.txt', self.i)
         if self.use_context_interaction:
@@ -750,6 +938,17 @@ class HDCTI(herbRecommender):
         print("模型权重保存成功: %s" % save_path)
     def predictForPairs(self, compound_indices, protein_indices):
         zero_weight = np.zeros(self.emb_size, dtype=np.float32)
+        state = {
+            'compound': self.u,
+            'protein': self.i,
+            'compound_context': self.u_context,
+            'protein_context': self.i_context,
+            'herb_edge': self.herb_edge,
+            'weights': self.weight,
+        }
+        pair_compound_contexts, _ = self.targetConditionedHerbContexts(
+            state, compound_indices, protein_indices
+        )
         return context_interaction_pair_scores(
             self.u,
             self.i,
@@ -763,16 +962,17 @@ class HDCTI(herbRecommender):
             enabled_terms=self.context_terms,
             decoder_type=self.pair_decoder['type'],
             decoder_weights=self.weight,
+            pair_compound_contexts=pair_compound_contexts,
         )
 
     def predictForRanking(self):
         print('hdctipredict----------------------------------------------------------------------------')
         decoder_type = self.pair_decoder['type']
-        if decoder_type == 'dot':
-            scores = self.u.dot(self.i.transpose())
-        elif decoder_type == 'bilinear':
-            scores = (self.u.dot(self.weight['decoder_bilinear'])).dot(self.i.transpose())
-        else:
+        pairwise_prediction_required = (
+            decoder_type == 'mlp'
+            or self.herb_context_attention['mode'] == 'target_attention'
+        )
+        if pairwise_prediction_required:
             scores = np.empty((self.num_compounds, self.num_proteins), dtype=np.float32)
             batch_size = self.pair_decoder['prediction_batch_size']
             total_pairs = self.num_compounds * self.num_proteins
@@ -785,6 +985,12 @@ class HDCTI(herbRecommender):
                     compound_indices, protein_indices
                 )
             return scores
+        if decoder_type == 'dot':
+            scores = self.u.dot(self.i.transpose())
+        elif decoder_type == 'bilinear':
+            scores = (self.u.dot(self.weight['decoder_bilinear'])).dot(self.i.transpose())
+        else:
+            raise ValueError('Unsupported pair decoder: %s' % decoder_type)
 
         if self.context_terms['compound_disease']:
             scores += (self.u * self.weight['context_compound_disease']).dot(

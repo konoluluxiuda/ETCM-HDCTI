@@ -111,9 +111,67 @@ evaluation.outer.test=False
 
 即使通过 AUPR 门槛，也必须确认无 NaN/CUDA 错误、显存可接受且注意力没有完全坍缩到固定单一药材。Pilot 不执行 outer-test，不能作为最终模型效果。
 
-## 7. 当前状态
+## 7. Pilot 结果与决策
 
 ```text
 静态 Hctx-P：已冻结
-Target-conditioned attention：设计完成，尚未实现
+Target-conditioned attention：Pilot 未通过，停止完整五折
 ```
+
+TCMSP Strict fold 1 的 validation-only Pilot 于 2026-07-15 完成：
+
+| 项目 | 结果 |
+|---|---:|
+| 静态 Hctx-P 参考 AUPR | 0.983863 |
+| Target-attention AUPR | 0.982828 |
+| 相对静态版本 | -0.001035 |
+| 预注册非劣性下限 | 0.982863 |
+| 相对非劣性下限 | -0.000035 |
+| 最佳 epoch | 28 |
+| 早停 epoch | 38 |
+| 运行时间 | 438.181101 s |
+
+结果以 `0.000035` 的微小差距低于预注册非劣性下限。虽然该差距不足以说明模块存在明显伤害，但它没有提供优于静态 Hctx-P 的证据。按照运行前规则，不事后放宽阈值，不搜索温度或额外结构，也不运行 outer-test 和完整五折。静态 Hctx-P 继续作为当前主模型。
+
+注意力审计输出为：
+
+```text
+validation_pairs=8976
+incidences=38969
+mean_entropy=0.345131
+mean_max_weight=0.864964
+```
+
+`mean_max_weight` 会受到单药材候选的影响。进一步按 TSV 中的候选分组后，具有至少两个已记录药材的 `3361` 个候选，其最大权重均值为 `0.646807`；最大权重不低于 `0.90/0.95/0.99` 的比例分别为 `23.18%/17.58%/8.93%`。因此没有证据表明所有候选都坍缩到固定单一药材，但部分候选的注意力较尖锐。当前 No-Go 的主要原因是预测性能没有超过静态聚合，而不是明显的全局注意力坍缩。
+
+该实现和配置保留为可复核的负结果及后续案例分析工具，不进入当前论文主模型贡献。
+
+## 8. 实现与复核
+
+实现配置：
+
+```text
+configs/HDCTI_target_herb_attention_pilot.conf
+```
+
+运行命令：
+
+```bash
+./run_hdcti.sh configs/HDCTI_target_herb_attention_pilot.conf
+```
+
+预期日志必须包含：
+
+```text
+Herb context mode: target_attention
+Pilot result for first 1 fold(s) of 5-fold cross validation
+Validation-AUPR
+```
+
+并且不能出现 `Predicting [1]` 或 outer-test AUC/AUPR。训练结束后会输出 validation pair 的注意力熵、平均最大权重，以及：
+
+```text
+results/target_attention_top_herbs<timestamp>.tsv
+```
+
+该文件保存每个 validation pair 权重最高的三个关联药材，仅用于结构审计和后续案例解释。

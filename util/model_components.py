@@ -27,6 +27,27 @@ def resolve_context_terms(config):
     }
 
 
+def resolve_herb_context_attention(config):
+    mode = (
+        str(config['context.herb_protein.mode']).strip().lower()
+        if config.contains('context.herb_protein.mode') else 'static'
+    )
+    if mode not in {'static', 'target_attention'}:
+        raise ValueError(
+            'context.herb_protein.mode must be static or target_attention.'
+        )
+    temperature = (
+        float(config['context.herb_attention.temperature'])
+        if config.contains('context.herb_attention.temperature') else 1.0
+    )
+    if temperature <= 0:
+        raise ValueError('context.herb_attention.temperature must be positive.')
+    return {
+        'mode': mode,
+        'temperature': temperature,
+    }
+
+
 def resolve_early_stopping(config):
     enabled = _config_bool(config, 'early.stopping', False)
     settings = {
@@ -182,7 +203,8 @@ def context_interaction_pair_scores(
         herb_disease_weight,
         enabled_terms=None,
         decoder_type='dot',
-        decoder_weights=None):
+        decoder_weights=None,
+        pair_compound_contexts=None):
     compound_indices = np.asarray(compound_indices, dtype=np.int64)
     protein_indices = np.asarray(protein_indices, dtype=np.int64)
     if compound_indices.shape != protein_indices.shape:
@@ -190,7 +212,13 @@ def context_interaction_pair_scores(
 
     compounds = np.asarray(compound_embeddings)[compound_indices]
     proteins = np.asarray(protein_embeddings)[protein_indices]
-    herb_contexts = np.asarray(compound_contexts)[compound_indices]
+    herb_contexts = (
+        np.asarray(pair_compound_contexts)
+        if pair_compound_contexts is not None
+        else np.asarray(compound_contexts)[compound_indices]
+    )
+    if herb_contexts.shape != compounds.shape:
+        raise ValueError('Pair compound contexts must match the pair embedding shape.')
     disease_contexts = np.asarray(protein_contexts)[protein_indices]
     if enabled_terms is None:
         enabled_terms = {
@@ -209,6 +237,76 @@ def context_interaction_pair_scores(
     if enabled_terms.get('herb_disease', False):
         scores += np.sum(herb_contexts * disease_contexts * herb_disease_weight, axis=1)
     return scores
+
+
+def target_conditioned_herb_contexts(
+        herb_edge_embeddings,
+        compound_herb_indices,
+        compound_herb_mask,
+        protein_embeddings,
+        compound_indices,
+        protein_indices,
+        herb_projection,
+        protein_projection,
+        temperature=1.0):
+    herb_edges = np.asarray(herb_edge_embeddings)
+    incidence = np.asarray(compound_herb_indices, dtype=np.int64)
+    incidence_mask = np.asarray(compound_herb_mask, dtype=np.float32)
+    proteins = np.asarray(protein_embeddings)
+    compound_indices = np.asarray(compound_indices, dtype=np.int64)
+    protein_indices = np.asarray(protein_indices, dtype=np.int64)
+    herb_projection = np.asarray(herb_projection)
+    protein_projection = np.asarray(protein_projection)
+    temperature = float(temperature)
+
+    if temperature <= 0:
+        raise ValueError('Target-attention temperature must be positive.')
+    if herb_edges.ndim != 2 or proteins.ndim != 2:
+        raise ValueError('Herb-edge and protein embeddings must be rank-2 arrays.')
+    if incidence.shape != incidence_mask.shape or incidence.ndim != 2:
+        raise ValueError('Compound-herb indices and mask must be matching rank-2 arrays.')
+    if compound_indices.shape != protein_indices.shape:
+        raise ValueError('Compound and protein index arrays must have the same shape.')
+    dimension = herb_edges.shape[1]
+    if proteins.shape[1] != dimension:
+        raise ValueError('Herb-edge and protein embedding dimensions must match.')
+    if herb_projection.shape != (dimension, dimension):
+        raise ValueError('Herb projection must have shape [dimension, dimension].')
+    if protein_projection.shape != (dimension, dimension):
+        raise ValueError('Protein projection must have shape [dimension, dimension].')
+
+    sentinel_index = herb_edges.shape[0]
+    if np.any(incidence < 0) or np.any(incidence > sentinel_index):
+        raise ValueError('Compound-herb incidence contains an invalid herb index.')
+    padded_herb_edges = np.concatenate(
+        [herb_edges, np.zeros((1, dimension), dtype=herb_edges.dtype)], axis=0
+    )
+    pair_incidence = incidence[compound_indices]
+    pair_mask = incidence_mask[compound_indices]
+    pair_herb_edges = padded_herb_edges[pair_incidence]
+    herb_keys = np.matmul(pair_herb_edges, herb_projection)
+    protein_queries = np.matmul(proteins[protein_indices], protein_projection)
+    logits = np.sum(herb_keys * protein_queries[:, None, :], axis=2)
+    logits = logits / (np.sqrt(float(dimension)) * temperature)
+    masked_logits = np.where(pair_mask > 0, logits, -1e9)
+    shifted_logits = masked_logits - np.max(masked_logits, axis=1, keepdims=True)
+    unnormalized = np.exp(shifted_logits) * pair_mask
+    normalizer = np.sum(unnormalized, axis=1, keepdims=True)
+    attention = np.divide(
+        unnormalized,
+        normalizer,
+        out=np.zeros_like(unnormalized),
+        where=normalizer > 0,
+    )
+    contexts = np.sum(attention[:, :, None] * pair_herb_edges, axis=1)
+    norms = np.linalg.norm(contexts, axis=1, keepdims=True)
+    contexts = np.divide(
+        contexts,
+        norms,
+        out=np.zeros_like(contexts),
+        where=norms > 0,
+    )
+    return contexts, attention
 
 
 def pair_decoder_scores(

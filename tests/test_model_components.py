@@ -12,8 +12,10 @@ from util.model_components import (
     pair_decoder_scores,
     resolve_early_stopping,
     resolve_context_terms,
+    resolve_herb_context_attention,
     resolve_negative_sampling,
     resolve_pair_decoder,
+    target_conditioned_herb_contexts,
 )
 
 
@@ -29,6 +31,69 @@ class DummyConf(object):
 
 
 class ModelComponentsTest(unittest.TestCase):
+    def test_herb_context_attention_defaults_to_frozen_static_mode(self):
+        settings = resolve_herb_context_attention(DummyConf({}))
+        self.assertEqual(settings, {'mode': 'static', 'temperature': 1.0})
+
+    def test_herb_context_attention_configuration_is_validated(self):
+        settings = resolve_herb_context_attention(DummyConf({
+            'context.herb_protein.mode': 'target_attention',
+            'context.herb_attention.temperature': '0.5',
+        }))
+        self.assertEqual(settings, {'mode': 'target_attention', 'temperature': 0.5})
+        with self.assertRaisesRegex(ValueError, 'static or target_attention'):
+            resolve_herb_context_attention(DummyConf({
+                'context.herb_protein.mode': 'global_attention',
+            }))
+        with self.assertRaisesRegex(ValueError, 'temperature must be positive'):
+            resolve_herb_context_attention(DummyConf({
+                'context.herb_attention.temperature': '0',
+            }))
+
+    def test_target_conditioned_context_changes_with_candidate_protein(self):
+        herb_edges = np.asarray([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32)
+        incidence = np.asarray([[0, 1]], dtype=np.int64)
+        mask = np.asarray([[1.0, 1.0]], dtype=np.float32)
+        proteins = np.asarray([[2.0, 0.0], [0.0, 2.0]], dtype=np.float32)
+
+        contexts, attention = target_conditioned_herb_contexts(
+            herb_edges,
+            incidence,
+            mask,
+            proteins,
+            compound_indices=[0, 0],
+            protein_indices=[0, 1],
+            herb_projection=np.eye(2, dtype=np.float32),
+            protein_projection=np.eye(2, dtype=np.float32),
+        )
+
+        self.assertGreater(attention[0, 0], attention[0, 1])
+        self.assertGreater(attention[1, 1], attention[1, 0])
+        self.assertGreater(contexts[0, 0], contexts[0, 1])
+        self.assertGreater(contexts[1, 1], contexts[1, 0])
+        np.testing.assert_allclose(np.sum(attention, axis=1), np.ones(2))
+        np.testing.assert_allclose(np.linalg.norm(contexts, axis=1), np.ones(2))
+
+    def test_target_conditioned_context_excludes_padding(self):
+        herb_edges = np.asarray([[3.0, 4.0], [1.0, 0.0]], dtype=np.float32)
+        incidence = np.asarray([[0, 2]], dtype=np.int64)
+        mask = np.asarray([[1.0, 0.0]], dtype=np.float32)
+        proteins = np.asarray([[0.0, 1.0]], dtype=np.float32)
+
+        contexts, attention = target_conditioned_herb_contexts(
+            herb_edges,
+            incidence,
+            mask,
+            proteins,
+            compound_indices=[0],
+            protein_indices=[0],
+            herb_projection=np.eye(2, dtype=np.float32),
+            protein_projection=np.eye(2, dtype=np.float32),
+        )
+
+        np.testing.assert_allclose(attention, [[1.0, 0.0]])
+        np.testing.assert_allclose(contexts, [[0.6, 0.8]])
+
     def test_negative_sampling_defaults_to_random(self):
         settings = resolve_negative_sampling(DummyConf({}))
         self.assertEqual(settings, {'strategy': 'random', 'hard_ratio': 0.25})
@@ -261,6 +326,18 @@ class ModelComponentsTest(unittest.TestCase):
             'herb_protein': True,
             'herb_disease': False,
         })
+
+    def test_target_attention_pilot_is_validation_only(self):
+        repository_root = Path(__file__).resolve().parents[1]
+        conf = ModelConf(str(
+            repository_root / 'configs' / 'HDCTI_target_herb_attention_pilot.conf'
+        ))
+        settings = resolve_herb_context_attention(conf)
+
+        self.assertEqual(settings['mode'], 'target_attention')
+        self.assertEqual(conf['evaluation.fold.limit'], '1')
+        self.assertEqual(conf['evaluation.outer.test'], 'False')
+        self.assertEqual(conf['context.herb_protein'], 'True')
 
     def test_embedding_regularization_is_added_once(self):
         import tensorflow.compat.v1 as tf
