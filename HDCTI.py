@@ -25,6 +25,7 @@ from util.model_components import (
     build_regularization_loss,
     context_interaction_pair_scores,
     resolve_context_terms,
+    resolve_counterfactual_context,
     resolve_early_stopping,
     resolve_herb_context_attention,
     resolve_pair_decoder,
@@ -164,6 +165,7 @@ class HDCTI(herbRecommender):
         for herb_index, compound_index in zip(hc_coo.row, hc_coo.col):
             compound_herbs[int(compound_index)].append(int(herb_index))
         compound_herbs = [sorted(set(indices)) for indices in compound_herbs]
+        self.compound_herbs = compound_herbs
         self.max_compound_herbs = max(
             [len(indices) for indices in compound_herbs] + [1]
         )
@@ -221,6 +223,7 @@ class HDCTI(herbRecommender):
         self.context_terms = resolve_context_terms(self.config)
         self.use_context_interaction = any(self.context_terms.values())
         self.herb_context_attention = resolve_herb_context_attention(self.config)
+        self.counterfactual_context = resolve_counterfactual_context(self.config)
         if (
             self.herb_context_attention['mode'] in TARGET_HERB_ATTENTION_MODES
             and not self.context_terms['herb_protein']
@@ -229,6 +232,82 @@ class HDCTI(herbRecommender):
                 '%s requires context.herb_protein=True.' %
                 self.herb_context_attention['mode']
             )
+        if self.counterfactual_context['enabled']:
+            if getattr(self.data, 'protocol', 'legacy') != 'strict':
+                raise ValueError(
+                    'Counterfactual herb context requires experiment.protocol=strict.'
+                )
+            if self.herb_context_attention['mode'] != 'static':
+                raise ValueError(
+                    'Counterfactual herb context requires static Hctx-P.'
+                )
+            if self.context_terms != {
+                    'compound_disease': False,
+                    'herb_protein': True,
+                    'herb_disease': False}:
+                raise ValueError(
+                    'Counterfactual herb context requires HerbOnly context terms.'
+                )
+            from util.counterfactual_context import (
+                build_exact_degree_counterfactuals,
+            )
+            compound_memberships = {
+                str(self.data.id2compound[index]): {
+                    str(self.data.id2herb[herb]) for herb in herbs
+                }
+                for index, herbs in enumerate(self.compound_herbs)
+                if herbs
+            }
+            matching = build_exact_degree_counterfactuals(
+                compound_memberships.keys(),
+                compound_memberships,
+                draws=self.counterfactual_context['draws'],
+                seed=self.counterfactual_context['seed'],
+            )
+            donor_indices = np.tile(
+                np.arange(self.num_compounds, dtype=np.int32)[:, None],
+                (1, self.counterfactual_context['draws']),
+            )
+            donor_eligible = np.zeros(self.num_compounds, dtype=np.float32)
+            for compound_id, donors in matching['assignments'].items():
+                index = self.data.compound[str(compound_id)]
+                donor_indices[index] = np.asarray([
+                    self.data.compound[str(donor)] for donor in donors
+                ], dtype=np.int32)
+                donor_eligible[index] = 1.0
+            self.counterfactual_donor_indices = donor_indices
+            self.counterfactual_donor_eligible = donor_eligible
+            self.counterfactual_u_idx = tf.placeholder(
+                tf.int32, name='counterfactual_u_idx'
+            )
+            self.counterfactual_eligible_mask = tf.placeholder(
+                tf.float32, name='counterfactual_eligible_mask'
+            )
+            import hashlib
+            assignment_hash = hashlib.sha256(
+                donor_indices.tobytes() + donor_eligible.tobytes()
+            ).hexdigest()
+            self.counterfactual_context['assignment_sha256'] = assignment_hash
+            self.counterfactual_context['eligible_compounds'] = int(
+                np.sum(donor_eligible)
+            )
+            print(
+                'CHCR: enabled weight=%g margin=%g draws=%d seed=%d '
+                'eligible_compounds=%d/%d assignment_hash=%s' % (
+                    self.counterfactual_context['weight'],
+                    self.counterfactual_context['margin'],
+                    self.counterfactual_context['draws'],
+                    self.counterfactual_context['seed'],
+                    self.counterfactual_context['eligible_compounds'],
+                    self.num_compounds,
+                    assignment_hash[:12],
+                )
+            )
+        else:
+            self.counterfactual_donor_indices = None
+            self.counterfactual_donor_eligible = None
+            self.counterfactual_u_idx = None
+            self.counterfactual_eligible_mask = None
         self.pair_decoder = resolve_pair_decoder(self.config)
         print(
             'Candidate context terms: C-Dctx=%s, Hctx-P=%s, Hctx-Dctx=%s' % (
@@ -667,6 +746,38 @@ class HDCTI(herbRecommender):
             self.regI,
         )
 
+    def buildCounterfactualContextLoss(self):
+        if not self.counterfactual_context['enabled']:
+            zero = tf.constant(0.0, dtype=tf.float32)
+            return zero, zero, zero
+
+        counterfactual_context_embedding = tf.nn.embedding_lookup(
+            self.final_compound_context, self.counterfactual_u_idx
+        )
+        factual_context_logits = tf.reduce_sum(
+            self.u_context_embedding * self.v_embedding
+            * self.weights['context_herb_protein'], axis=1
+        )
+        counterfactual_context_logits = tf.reduce_sum(
+            counterfactual_context_embedding * self.v_embedding
+            * self.weights['context_herb_protein'], axis=1
+        )
+        positive_mask = tf.cast(
+            self.neg_disease_embedding > 0.5, tf.float32
+        )
+        active_mask = positive_mask * self.counterfactual_eligible_mask
+        margins = factual_context_logits - counterfactual_context_logits
+        violations = tf.nn.relu(
+            self.counterfactual_context['margin'] - margins
+        ) * active_mask
+        raw_loss = tf.reduce_sum(violations)
+        weighted_loss = self.counterfactual_context['weight'] * raw_loss
+        active_count = tf.reduce_sum(active_mask)
+        active_mean_margin = tf.reduce_sum(margins * active_mask) / tf.maximum(
+            active_count, 1.0
+        )
+        return weighted_loss, active_count, active_mean_margin
+
     def fetchModelState(self):
         return self.sess.run(
             {
@@ -777,7 +888,10 @@ class HDCTI(herbRecommender):
         ))
 
         reg_loss = self.buildRegularizationLoss()
-        loss = bce_loss + reg_loss
+        counterfactual_loss, counterfactual_active, counterfactual_margin = (
+            self.buildCounterfactualContextLoss()
+        )
+        loss = bce_loss + reg_loss + counterfactual_loss
 
         optimizer = tf.train.AdamOptimizer(self.lRate)
         train = optimizer.minimize(loss)
@@ -819,9 +933,33 @@ class HDCTI(herbRecommender):
             for n, batch in enumerate(self.next_batch_pairwise()):
                 batch_start = time()
                 herb_idx, i_idx, j_idx = batch
-                _, l = self.sess.run([train, loss],
-                                    feed_dict={self.u_idx: herb_idx, self.neg_idx: j_idx, self.v_idx: i_idx,
-                                                self.isTraining: 1})
+                feed_dict = {
+                    self.u_idx: herb_idx,
+                    self.neg_idx: j_idx,
+                    self.v_idx: i_idx,
+                    self.isTraining: 1,
+                }
+                if self.counterfactual_context['enabled']:
+                    compound_batch = np.asarray(herb_idx, dtype=np.int32)
+                    draw_index = epoch % self.counterfactual_context['draws']
+                    feed_dict[self.counterfactual_u_idx] = (
+                        self.counterfactual_donor_indices[
+                            compound_batch, draw_index
+                        ]
+                    )
+                    feed_dict[self.counterfactual_eligible_mask] = (
+                        self.counterfactual_donor_eligible[compound_batch]
+                    )
+                _, l, cf_l, cf_active, cf_margin = self.sess.run(
+                    [
+                        train,
+                        loss,
+                        counterfactual_loss,
+                        counterfactual_active,
+                        counterfactual_margin,
+                    ],
+                    feed_dict=feed_dict,
+                )
                 if not np.isfinite(l):
                     raise ValueError('Training loss became non-finite at epoch %d batch %d: %s' % (epoch + 1, n, l))
                 elapsed = time() - train_start
@@ -829,9 +967,32 @@ class HDCTI(herbRecommender):
                 step = min(epoch * total_batches + n + 1, total_steps)
                 avg_step_time = elapsed / step
                 eta = avg_step_time * (total_steps - step)
-                print('training: %d/%d batch %d/%d loss: %s batch_time: %s elapsed: %s eta: %s' %
-                      (epoch + 1, self.maxEpoch, n + 1, total_batches, l,
-                       format_duration(batch_time), format_duration(elapsed), format_duration(eta)))
+                chcr_suffix = ''
+                if self.counterfactual_context['enabled']:
+                    chcr_suffix = (
+                        ' chcr_loss: %s chcr_active: %d chcr_margin: %s '
+                        'chcr_draw: %d/%d' % (
+                            cf_l,
+                            int(cf_active),
+                            cf_margin,
+                            epoch % self.counterfactual_context['draws'] + 1,
+                            self.counterfactual_context['draws'],
+                        )
+                    )
+                print(
+                    'training: %d/%d batch %d/%d loss: %s batch_time: %s '
+                    'elapsed: %s eta: %s%s' % (
+                        epoch + 1,
+                        self.maxEpoch,
+                        n + 1,
+                        total_batches,
+                        l,
+                        format_duration(batch_time),
+                        format_duration(elapsed),
+                        format_duration(eta),
+                        chcr_suffix,
+                    )
+                )
             print('epoch %d/%d finished in %s' %
                   (epoch + 1, self.maxEpoch, format_duration(time() - epoch_start)))
             epochs_completed = epoch + 1

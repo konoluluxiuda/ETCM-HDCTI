@@ -12,6 +12,7 @@ from util.model_components import (
     pair_decoder_scores,
     resolve_early_stopping,
     resolve_context_terms,
+    resolve_counterfactual_context,
     resolve_herb_context_attention,
     resolve_negative_sampling,
     resolve_pair_decoder,
@@ -31,6 +32,30 @@ class DummyConf(object):
 
 
 class ModelComponentsTest(unittest.TestCase):
+    def test_counterfactual_context_defaults_off_and_validates_pilot_settings(self):
+        self.assertEqual(resolve_counterfactual_context(DummyConf({})), {
+            'enabled': False,
+            'weight': 0.05,
+            'margin': 0.2,
+            'draws': 20,
+            'seed': 42026,
+            'match': 'exact_hc_degree_disjoint',
+        })
+        settings = resolve_counterfactual_context(DummyConf({
+            'counterfactual.context': 'True',
+            'counterfactual.weight': '0.05',
+            'counterfactual.margin': '0.2',
+            'counterfactual.draws': '20',
+            'counterfactual.seed': '42026',
+            'counterfactual.match': 'exact_hc_degree_disjoint',
+        }))
+        self.assertTrue(settings['enabled'])
+        with self.assertRaisesRegex(ValueError, 'counterfactual.margin'):
+            resolve_counterfactual_context(DummyConf({
+                'counterfactual.context': 'True',
+                'counterfactual.margin': '0',
+            }))
+
     def test_herb_context_attention_defaults_to_frozen_static_mode(self):
         settings = resolve_herb_context_attention(DummyConf({}))
         self.assertEqual(settings, {'mode': 'static', 'temperature': 1.0})

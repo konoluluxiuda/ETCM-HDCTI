@@ -50,6 +50,70 @@ def resolve_herb_context_attention(config):
     }
 
 
+def resolve_counterfactual_context(config):
+    enabled = _config_bool(config, 'counterfactual.context', False)
+    settings = {
+        'enabled': enabled,
+        'weight': (
+            float(config['counterfactual.weight'])
+            if config.contains('counterfactual.weight') else 0.05
+        ),
+        'margin': (
+            float(config['counterfactual.margin'])
+            if config.contains('counterfactual.margin') else 0.2
+        ),
+        'draws': (
+            int(config['counterfactual.draws'])
+            if config.contains('counterfactual.draws') else 20
+        ),
+        'seed': (
+            int(config['counterfactual.seed'])
+            if config.contains('counterfactual.seed') else 42026
+        ),
+        'match': (
+            str(config['counterfactual.match']).strip().lower()
+            if config.contains('counterfactual.match')
+            else 'exact_hc_degree_disjoint'
+        ),
+    }
+    if settings['weight'] < 0:
+        raise ValueError('counterfactual.weight cannot be negative.')
+    if settings['margin'] <= 0:
+        raise ValueError('counterfactual.margin must be positive.')
+    if settings['draws'] <= 0:
+        raise ValueError('counterfactual.draws must be positive.')
+    if settings['match'] != 'exact_hc_degree_disjoint':
+        raise ValueError(
+            'counterfactual.match must be exact_hc_degree_disjoint.'
+        )
+    if enabled and settings['weight'] == 0:
+        raise ValueError(
+            'counterfactual.weight must be positive when counterfactual.context=True.'
+        )
+    return settings
+
+
+def counterfactual_margin_values(
+        factual_context_logits,
+        counterfactual_context_logits,
+        labels,
+        eligible_mask,
+        margin):
+    factual = np.asarray(factual_context_logits, dtype=np.float64)
+    counterfactual = np.asarray(counterfactual_context_logits, dtype=np.float64)
+    labels = np.asarray(labels, dtype=np.float64)
+    eligible = np.asarray(eligible_mask, dtype=np.float64)
+    if not (
+            factual.shape == counterfactual.shape == labels.shape
+            == eligible.shape):
+        raise ValueError('Counterfactual margin inputs must have matching shapes.')
+    active = (labels > 0.5).astype(np.float64) * (eligible > 0).astype(np.float64)
+    values = np.maximum(
+        0.0, float(margin) - (factual - counterfactual)
+    ) * active
+    return values
+
+
 def resolve_early_stopping(config):
     enabled = _config_bool(config, 'early.stopping', False)
     settings = {
