@@ -146,6 +146,8 @@ mean_max_weight=0.864964
 
 该实现和配置保留为可复核的负结果及后续案例分析工具，不进入当前论文主模型贡献。
 
+V1 的 No-Go 结论保持不变。后续基于“替换静态上下文可能损失稳定信息”的诊断，另行提出保留静态主项的残差式 V2；其假设、代码模式和 Pilot 协议独立记录于 [TARGET_CONDITIONED_RESIDUAL_ATTENTION.md](TARGET_CONDITIONED_RESIDUAL_ATTENTION.md)。
+
 ## 8. 实现与复核
 
 实现配置：

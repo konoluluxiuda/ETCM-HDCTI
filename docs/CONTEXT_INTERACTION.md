@@ -503,4 +503,4 @@ Fold 5 的 Hctx-P 权重平均绝对值为 `1.079263`，C-Dctx 和 Hctx-Dctx 均
 
 2026-07-15 完成 ETCM2.0_core_mention10 的 Max-80 收敛对照、checkpoint 分组机制分析和 inner-validation 阈值校准后，静态 Hctx-P 正式冻结。后续不再向该版本加入 H-C/mention gate、degree-aware calibration、C-Dctx 或 Hctx-Dctx；固定 `0.5` 结果保留用于原协议比较，验证集阈值结果只作为补充校准分析。
 
-第二创新使用独立 `target_attention` 模式尝试靶点条件化药材上下文注意力。关闭新模式时必须保持本节静态 Hctx-P 的图结构、参数和 checkpoint 兼容性。设计见 [TARGET_CONDITIONED_HERB_ATTENTION.md](TARGET_CONDITIONED_HERB_ATTENTION.md)。
+第二创新首先使用独立 `target_attention` 模式尝试靶点条件化药材上下文注意力，但替换式 V1 未通过预注册 Pilot。随后完成机制明确的残差式 V2：静态 Hctx-P 主项不变，动态注意力仅学习上下文增量。V2 的残差确实激活，但 ETCM validation AUPR `0.974943` 仍低于静态参考 `0.975782`，因此也按预注册规则停止。静态 Hctx-P checkpoint 兼容性保持不变，V1 与 V2 分别见 [TARGET_CONDITIONED_HERB_ATTENTION.md](TARGET_CONDITIONED_HERB_ATTENTION.md) 和 [TARGET_CONDITIONED_RESIDUAL_ATTENTION.md](TARGET_CONDITIONED_RESIDUAL_ATTENTION.md)。

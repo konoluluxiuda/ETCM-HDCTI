@@ -32,9 +32,11 @@ def resolve_herb_context_attention(config):
         str(config['context.herb_protein.mode']).strip().lower()
         if config.contains('context.herb_protein.mode') else 'static'
     )
-    if mode not in {'static', 'target_attention'}:
+    valid_modes = {'static', 'target_attention', 'target_residual_attention'}
+    if mode not in valid_modes:
         raise ValueError(
-            'context.herb_protein.mode must be static or target_attention.'
+            'context.herb_protein.mode must be static, target_attention, '
+            'or target_residual_attention.'
         )
     temperature = (
         float(config['context.herb_attention.temperature'])
@@ -204,7 +206,9 @@ def context_interaction_pair_scores(
         enabled_terms=None,
         decoder_type='dot',
         decoder_weights=None,
-        pair_compound_contexts=None):
+        pair_compound_contexts=None,
+        residual_compound_contexts=None,
+        target_residual_weight=None):
     compound_indices = np.asarray(compound_indices, dtype=np.int64)
     protein_indices = np.asarray(protein_indices, dtype=np.int64)
     if compound_indices.shape != protein_indices.shape:
@@ -212,10 +216,11 @@ def context_interaction_pair_scores(
 
     compounds = np.asarray(compound_embeddings)[compound_indices]
     proteins = np.asarray(protein_embeddings)[protein_indices]
+    static_herb_contexts = np.asarray(compound_contexts)[compound_indices]
     herb_contexts = (
         np.asarray(pair_compound_contexts)
         if pair_compound_contexts is not None
-        else np.asarray(compound_contexts)[compound_indices]
+        else static_herb_contexts
     )
     if herb_contexts.shape != compounds.shape:
         raise ValueError('Pair compound contexts must match the pair embedding shape.')
@@ -234,6 +239,20 @@ def context_interaction_pair_scores(
         scores += np.sum(compounds * disease_contexts * compound_disease_weight, axis=1)
     if enabled_terms.get('herb_protein', False):
         scores += np.sum(herb_contexts * proteins * herb_protein_weight, axis=1)
+        if residual_compound_contexts is not None:
+            residual_contexts = np.asarray(residual_compound_contexts)
+            if residual_contexts.shape != compounds.shape:
+                raise ValueError(
+                    'Residual compound contexts must match the pair embedding shape.'
+                )
+            if target_residual_weight is None:
+                raise ValueError(
+                    'Target residual weight is required with residual contexts.'
+                )
+            context_delta = residual_contexts - static_herb_contexts
+            scores += np.sum(
+                context_delta * proteins * np.asarray(target_residual_weight), axis=1
+            )
     if enabled_terms.get('herb_disease', False):
         scores += np.sum(herb_contexts * disease_contexts * herb_disease_weight, axis=1)
     return scores

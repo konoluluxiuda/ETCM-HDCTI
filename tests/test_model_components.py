@@ -41,7 +41,14 @@ class ModelComponentsTest(unittest.TestCase):
             'context.herb_attention.temperature': '0.5',
         }))
         self.assertEqual(settings, {'mode': 'target_attention', 'temperature': 0.5})
-        with self.assertRaisesRegex(ValueError, 'static or target_attention'):
+        residual_settings = resolve_herb_context_attention(DummyConf({
+            'context.herb_protein.mode': 'target_residual_attention',
+        }))
+        self.assertEqual(
+            residual_settings,
+            {'mode': 'target_residual_attention', 'temperature': 1.0},
+        )
+        with self.assertRaisesRegex(ValueError, 'target_residual_attention'):
             resolve_herb_context_attention(DummyConf({
                 'context.herb_protein.mode': 'global_attention',
             }))
@@ -93,6 +100,90 @@ class ModelComponentsTest(unittest.TestCase):
 
         np.testing.assert_allclose(attention, [[1.0, 0.0]])
         np.testing.assert_allclose(contexts, [[0.6, 0.8]])
+
+    def test_zero_initialized_target_residual_preserves_static_context_score(self):
+        compounds = np.asarray([[0.2, 0.4]], dtype=np.float32)
+        proteins = np.asarray([[0.5, 0.7]], dtype=np.float32)
+        static_contexts = np.asarray([[0.1, 0.9]], dtype=np.float32)
+        target_contexts = np.asarray([[0.8, 0.2]], dtype=np.float32)
+        protein_contexts = np.zeros((1, 2), dtype=np.float32)
+        herb_protein_weight = np.asarray([0.3, -0.2], dtype=np.float32)
+        zero_weight = np.zeros(2, dtype=np.float32)
+        enabled_terms = {
+            'compound_disease': False,
+            'herb_protein': True,
+            'herb_disease': False,
+        }
+
+        static_scores = context_interaction_pair_scores(
+            compounds,
+            proteins,
+            static_contexts,
+            protein_contexts,
+            [0],
+            [0],
+            zero_weight,
+            herb_protein_weight,
+            zero_weight,
+            enabled_terms=enabled_terms,
+        )
+        residual_scores = context_interaction_pair_scores(
+            compounds,
+            proteins,
+            static_contexts,
+            protein_contexts,
+            [0],
+            [0],
+            zero_weight,
+            herb_protein_weight,
+            zero_weight,
+            enabled_terms=enabled_terms,
+            residual_compound_contexts=target_contexts,
+            target_residual_weight=zero_weight,
+        )
+
+        np.testing.assert_allclose(residual_scores, static_scores)
+
+    def test_target_residual_adds_only_conditioned_context_delta(self):
+        compounds = np.asarray([[0.2, 0.4]], dtype=np.float32)
+        proteins = np.asarray([[0.5, 0.7]], dtype=np.float32)
+        static_contexts = np.asarray([[0.1, 0.9]], dtype=np.float32)
+        target_contexts = np.asarray([[0.8, 0.2]], dtype=np.float32)
+        protein_contexts = np.zeros((1, 2), dtype=np.float32)
+        herb_protein_weight = np.asarray([0.3, -0.2], dtype=np.float32)
+        residual_weight = np.asarray([0.4, 0.6], dtype=np.float32)
+        zero_weight = np.zeros(2, dtype=np.float32)
+        enabled_terms = {
+            'compound_disease': False,
+            'herb_protein': True,
+            'herb_disease': False,
+        }
+
+        actual = context_interaction_pair_scores(
+            compounds,
+            proteins,
+            static_contexts,
+            protein_contexts,
+            [0],
+            [0],
+            zero_weight,
+            herb_protein_weight,
+            zero_weight,
+            enabled_terms=enabled_terms,
+            residual_compound_contexts=target_contexts,
+            target_residual_weight=residual_weight,
+        )
+        expected = (
+            np.sum(compounds[0] * proteins[0])
+            + np.sum(static_contexts[0] * proteins[0] * herb_protein_weight)
+            + np.sum(
+                (target_contexts[0] - static_contexts[0])
+                * proteins[0]
+                * residual_weight
+            )
+        )
+
+        np.testing.assert_allclose(actual, [expected])
 
     def test_negative_sampling_defaults_to_random(self):
         settings = resolve_negative_sampling(DummyConf({}))
@@ -338,6 +429,20 @@ class ModelComponentsTest(unittest.TestCase):
         self.assertEqual(conf['evaluation.fold.limit'], '1')
         self.assertEqual(conf['evaluation.outer.test'], 'False')
         self.assertEqual(conf['context.herb_protein'], 'True')
+
+    def test_target_residual_attention_pilot_is_validation_only(self):
+        repository_root = Path(__file__).resolve().parents[1]
+        conf = ModelConf(str(
+            repository_root / 'configs' /
+            'HDCTI_etcm_mention10_target_residual_attention_pilot.conf'
+        ))
+        settings = resolve_herb_context_attention(conf)
+
+        self.assertEqual(settings['mode'], 'target_residual_attention')
+        self.assertEqual(conf['evaluation.fold.limit'], '1')
+        self.assertEqual(conf['evaluation.outer.test'], 'False')
+        self.assertEqual(conf['context.herb_protein'], 'True')
+        self.assertIn('ETCM2.0_core_mention10', conf['datapath'])
 
     def test_embedding_regularization_is_added_once(self):
         import tensorflow.compat.v1 as tf

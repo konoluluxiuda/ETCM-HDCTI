@@ -279,6 +279,124 @@ class ContextModelSmokeTest(unittest.TestCase):
         np.testing.assert_allclose(np.sum(attention, axis=1), np.ones(2), atol=1e-6)
         self.assertEqual(attention.shape, (2, 2))
 
+    def test_target_residual_attention_starts_static_and_matches_pair_inference(self):
+        os.environ['HDCTI_FORCE_CPU'] = '1'
+        os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+        import tensorflow.compat.v1 as tf
+
+        from HDCTI import HDCTI
+        from util.model_components import context_interaction_pair_scores
+
+        tf.reset_default_graph()
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            dataset_dir = Path(temporary_directory)
+            (dataset_dir / 'H_C.txt').write_text(
+                'h0\tc0\nh1\tc0\nh0\tc1\n', encoding='utf-8'
+            )
+            (dataset_dir / 'C_P.txt').write_text(
+                'c0\tp0\nc1\tp1\n', encoding='utf-8'
+            )
+            (dataset_dir / 'P_D.txt').write_text(
+                'p0\td0\np1\td1\n', encoding='utf-8'
+            )
+            datapath = dataset_dir / 'ONE_indices.txt'
+            datapath.write_text('c0\tp0\t1\nc1\tp1\t1\n', encoding='utf-8')
+            conf = DummyConf({
+                'datapath': str(datapath),
+                'ratings.setup': '-columns 0 1 2',
+                'evaluation.setup': '-cv 2',
+                'experiment.protocol': 'strict',
+                'model.name': 'HDCTI',
+                'num.factors': '4',
+                'num.max.epoch': '1',
+                'batch_size': '2',
+                'learnRate': '-init 0.005 -max 1',
+                'reg.lambda': '-u 0.001 -i 0.001 -b 0.2 -s 0.2',
+                'weight.reg': '0.01',
+                'pair.decoder': 'dot',
+                'context.interaction': 'True',
+                'context.compound_disease': 'False',
+                'context.herb_protein': 'True',
+                'context.herb_protein.mode': 'target_residual_attention',
+                'context.herb_attention.temperature': '1.0',
+                'context.herb_disease': 'False',
+                'attention.max.nodes': '10',
+                'output.setup': 'off -dir ./results/',
+                'gpu.allow_growth': 'False',
+                'gpu.log_device_placement': 'False',
+            })
+            training = [['c0', 'p0', 1.0], ['c0', 'p1', 0.0]]
+            test = [['c1', 'p1', 1.0], ['c1', 'p0', 0.0]]
+            model = HDCTI(conf, training, test, '[1]')
+            model.readConfiguration()
+            model.initModel()
+            self.assertEqual(
+                model.herb_context_attention['mode'],
+                'target_residual_attention',
+            )
+            self.assertIn('context_target_herb_residual', model.weights)
+
+            logits = model.buildPairLogits()
+            loss = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(
+                labels=model.neg_disease_embedding, logits=logits
+            )) + model.buildRegularizationLoss()
+            train = tf.train.AdamOptimizer(model.lRate).minimize(loss)
+            model.sess.run(tf.global_variables_initializer())
+            compound_indices = [model.data.compound['c0'], model.data.compound['c0']]
+            protein_indices = [model.data.protein['p0'], model.data.protein['p1']]
+            feed = {
+                model.u_idx: compound_indices,
+                model.v_idx: protein_indices,
+                model.neg_idx: [1.0, 0.0],
+                model.isTraining: 0,
+            }
+            initial_logits, initial_residual_weight = model.sess.run(
+                [logits, model.weights['context_target_herb_residual']],
+                feed_dict=feed,
+            )
+            initial_state = model.fetchModelState()
+            zero_weight = np.zeros(model.emb_size, dtype=np.float32)
+            expected_static_logits = context_interaction_pair_scores(
+                initial_state['compound'],
+                initial_state['protein'],
+                initial_state['compound_context'],
+                initial_state['protein_context'],
+                compound_indices,
+                protein_indices,
+                zero_weight,
+                initial_state['weights']['context_herb_protein'],
+                zero_weight,
+                enabled_terms=model.context_terms,
+            )
+            np.testing.assert_allclose(initial_residual_weight, zero_weight)
+            np.testing.assert_allclose(
+                initial_logits, expected_static_logits, rtol=1e-5, atol=1e-5
+            )
+
+            feed[model.isTraining] = 1
+            model.sess.run(train, feed_dict=feed)
+            model.sess.run(train, feed_dict=feed)
+            tensorflow_logits = model.sess.run(logits, feed_dict=feed)
+            state = model.fetchModelState()
+            self.assertGreater(
+                float(np.linalg.norm(
+                    state['weights']['context_target_herb_residual']
+                )),
+                0.0,
+            )
+            model.u = state['compound']
+            model.i = state['protein']
+            model.u_context = state['compound_context']
+            model.i_context = state['protein_context']
+            model.herb_edge = state['herb_edge']
+            model.weight = state['weights']
+            numpy_logits = model.predictForPairs(compound_indices, protein_indices)
+            model.sess.close()
+
+        np.testing.assert_allclose(
+            numpy_logits, tensorflow_logits, rtol=1e-5, atol=1e-5
+        )
+
 
 if __name__ == '__main__':
     unittest.main()
