@@ -48,6 +48,35 @@ class StrictProtocolTest(unittest.TestCase):
             & {(row[0], row[1]) for row in first_validation}
         )
 
+    def test_compound_inner_validation_is_deterministic_and_compound_disjoint(self):
+        records = []
+        for index in range(10):
+            records.append(['c%d' % index, 'p0', 1.0])
+            records.append(['c%d' % index, 'p1', 0.0])
+
+        first_train, first_validation, first_info = (
+            DataSplit.innerCompoundValidationSplit(records, ratio=0.2, seed=41)
+        )
+        second_train, second_validation, second_info = (
+            DataSplit.innerCompoundValidationSplit(
+                list(reversed(records)), ratio=0.2, seed=41
+            )
+        )
+
+        self.assertEqual(first_train, second_train)
+        self.assertEqual(first_validation, second_validation)
+        self.assertEqual(first_info, second_info)
+        self.assertEqual(first_info['strategy'], 'compound_cold_start')
+        self.assertEqual(first_info['inner_train_compounds'], 8)
+        self.assertEqual(first_info['validation_compounds'], 2)
+        self.assertEqual(len(first_train), 16)
+        self.assertEqual(len(first_validation), 4)
+        self.assertFalse(
+            {row[0] for row in first_train} & {row[0] for row in first_validation}
+        )
+        self.assertEqual(first_info['class_counts']['validation']['0'], 2)
+        self.assertEqual(first_info['class_counts']['validation']['1'], 2)
+
     def test_mixed_training_negatives_are_deterministic_and_reserved_pair_safe(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             dataset_dir = Path(temporary_directory)
@@ -159,6 +188,93 @@ class StrictProtocolTest(unittest.TestCase):
             self.assertEqual(first_assignments, (split_dir / 'fold_assignments.tsv').read_bytes())
             self.assertEqual(first_folds, rebuilt_folds)
             self.assertEqual(first_manifest['assignments_sha256'], rebuilt_manifest['assignments_sha256'])
+
+    def test_compound_cold_start_split_is_matched_reused_and_disjoint(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            dataset_dir = Path(temporary_directory)
+            positive_rows = []
+            negative_rows = []
+            for compound_index in range(6):
+                compound_id = 'c%d' % compound_index
+                first = compound_index % 4
+                second = (compound_index + 1) % 4
+                positive_rows.extend([
+                    '%s\tp%d\t1' % (compound_id, first),
+                    '%s\tp%d\t1' % (compound_id, second),
+                ])
+                negative_rows.append(
+                    '%s\tp%d\t0' % (compound_id, (compound_index + 2) % 4)
+                )
+            datapath = dataset_dir / 'ONE_indices.txt'
+            datapath.write_text('\n'.join(positive_rows) + '\n', encoding='utf-8')
+            (dataset_dir / 'ZERO_indices.txt').write_text(
+                '\n'.join(negative_rows) + '\n', encoding='utf-8'
+            )
+            split_dir = dataset_dir / 'cold_split'
+            conf = DummyConf({
+                'ratings.setup': '-columns 0 1 2',
+                'split.strategy': 'compound_cold_start',
+                'split.seed': '17',
+                'split.dir': str(split_dir),
+                'split.reuse': 'True',
+            })
+
+            first_folds, first_manifest = DataSplit.prepareStrictFolds(
+                conf, str(datapath), 3
+            )
+            first_assignments = (split_dir / 'fold_assignments.tsv').read_bytes()
+            second_folds, second_manifest = DataSplit.prepareStrictFolds(
+                conf, str(datapath), 3
+            )
+
+            self.assertEqual(first_folds, second_folds)
+            self.assertEqual(first_manifest, second_manifest)
+            self.assertEqual(
+                first_assignments,
+                (split_dir / 'fold_assignments.tsv').read_bytes(),
+            )
+            self.assertEqual(first_manifest['split_strategy'], 'compound_cold_start')
+            self.assertEqual(
+                first_manifest['split_algorithm'],
+                'compound_group_greedy_balance_v1',
+            )
+            self.assertTrue(
+                first_manifest['strict_guarantees']['compound_disjoint_train_test']
+            )
+            self.assertEqual(first_manifest['negative_fallback_compounds'], 6)
+            self.assertEqual(first_manifest['negative_fallback_records'], 6)
+            for train, test in first_folds:
+                self.assertFalse(
+                    {row[0] for row in train} & {row[0] for row in test}
+                )
+                self.assertEqual(sum(row[2] > 0 for row in test), 4)
+                self.assertEqual(sum(row[2] == 0 for row in test), 4)
+                for compound_id in {row[0] for row in test}:
+                    compound_records = [row for row in test if row[0] == compound_id]
+                    self.assertEqual(
+                        sum(row[2] > 0 for row in compound_records),
+                        sum(row[2] == 0 for row in compound_records),
+                    )
+
+    def test_strict_manifest_rejects_changed_split_strategy(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            dataset_dir = Path(temporary_directory)
+            datapath = dataset_dir / 'ONE_indices.txt'
+            datapath.write_text(
+                'c0\tp0\t1\nc1\tp1\t1\nc2\tp0\t1\nc3\tp1\t1\n',
+                encoding='utf-8',
+            )
+            conf = DummyConf({
+                'ratings.setup': '-columns 0 1 2',
+                'split.seed': '17',
+                'split.dir': str(dataset_dir / 'strict_split'),
+                'split.reuse': 'True',
+            })
+            DataSplit.prepareStrictFolds(conf, str(datapath), 2)
+            conf.config['split.strategy'] = 'compound_cold_start'
+
+            with self.assertRaisesRegex(ValueError, 'split strategy'):
+                DataSplit.prepareStrictFolds(conf, str(datapath), 2)
 
     def test_split_seed_is_independent_from_training_seed(self):
         with tempfile.TemporaryDirectory() as temporary_directory:

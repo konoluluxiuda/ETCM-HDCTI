@@ -9,6 +9,12 @@ from .io import FileIO, NEGATIVE_FILE_CANDIDATES, resolve_optional_dataset_file,
 
 
 STRICT_MANIFEST_VERSION = 3
+PAIR_STRATIFIED_SPLIT = 'pair_stratified'
+COMPOUND_COLD_START_SPLIT = 'compound_cold_start'
+SUPPORTED_SPLIT_STRATEGIES = (
+    PAIR_STRATIFIED_SPLIT,
+    COMPOUND_COLD_START_SPLIT,
+)
 SIDE_RELATION_FILE_CANDIDATES = {
     'H_C': ('H_C.txt', 'herb-compound.txt', 'HI.txt'),
     'C_P': ('C_P.txt', 'compound-protein.txt', 'IT.txt'),
@@ -110,6 +116,11 @@ def _pairs_sha256(pairs):
     ).hexdigest()
 
 
+def _stable_seed(seed, *parts):
+    value = '|'.join([str(int(seed))] + [str(part) for part in parts])
+    return int(hashlib.sha256(value.encode('utf-8')).hexdigest()[:16], 16)
+
+
 def _read_relation_pairs(path):
     pairs = set()
     with open(path, encoding='utf-8') as handle:
@@ -155,6 +166,26 @@ class DataSplit(object):
 
     def __init__(self):
         pass
+
+    @staticmethod
+    def resolveSplitStrategy(conf):
+        strategy = (
+            conf['split.strategy'].strip().lower()
+            if conf.contains('split.strategy') else PAIR_STRATIFIED_SPLIT
+        )
+        aliases = {
+            'pair': PAIR_STRATIFIED_SPLIT,
+            'random_pair': PAIR_STRATIFIED_SPLIT,
+            'compound': COMPOUND_COLD_START_SPLIT,
+            'compound_coldstart': COMPOUND_COLD_START_SPLIT,
+        }
+        strategy = aliases.get(strategy, strategy)
+        if strategy not in SUPPORTED_SPLIT_STRATEGIES:
+            raise ValueError(
+                'Unsupported split.strategy %r. Expected one of: %s.' %
+                (strategy, ', '.join(SUPPORTED_SPLIT_STRATEGIES))
+            )
+        return strategy
 
     @staticmethod
     def crossValidation(data, k, output=True, path='./dataset/TCMsuite', order=1):
@@ -241,6 +272,105 @@ class DataSplit(object):
             'class_counts': class_counts,
             'assignments_sha256': assignment_hash,
         }
+        return inner_train, validation, info
+
+    @staticmethod
+    def innerCompoundValidationSplit(data, ratio, seed):
+        ratio = float(ratio)
+        if not 0.0 < ratio < 1.0:
+            raise ValueError('Inner validation ratio must be between 0 and 1.')
+
+        records_by_compound = {}
+        pair_labels = {}
+        for left_id, right_id, rating in data:
+            pair = (str(left_id), str(right_id))
+            label = 1 if float(rating) > 0 else 0
+            if pair in pair_labels:
+                if pair_labels[pair] != label:
+                    raise ValueError('Conflicting labels for inner-validation pair %s.' % (pair,))
+                raise ValueError('Duplicate pair in inner-validation input: %s.' % (pair,))
+            pair_labels[pair] = label
+            records_by_compound.setdefault(pair[0], []).append(
+                [pair[0], pair[1], float(label)]
+            )
+
+        compound_ids = sorted(records_by_compound)
+        if len(compound_ids) < 2:
+            raise ValueError(
+                'Compound cold-start inner validation requires at least two compounds.'
+            )
+        validation_compound_count = int(round(len(compound_ids) * ratio))
+        validation_compound_count = max(
+            1, min(len(compound_ids) - 1, validation_compound_count)
+        )
+        compound_ids.sort(
+            key=lambda compound_id: (
+                _stable_seed(seed, 'inner_validation', compound_id),
+                str(compound_id),
+            )
+        )
+        validation_compounds = set(compound_ids[:validation_compound_count])
+
+        inner_train = []
+        validation = []
+        for compound_id in sorted(records_by_compound):
+            target = validation if compound_id in validation_compounds else inner_train
+            target.extend(
+                sorted(records_by_compound[compound_id], key=lambda row: (row[0], row[1]))
+            )
+        random.Random(_stable_seed(seed, 'inner_train_records')).shuffle(inner_train)
+        random.Random(_stable_seed(seed, 'validation_records')).shuffle(validation)
+
+        train_compounds = {row[0] for row in inner_train}
+        validation_compound_ids = {row[0] for row in validation}
+        if train_compounds & validation_compound_ids:
+            raise ValueError('Inner train and validation compounds overlap.')
+
+        def class_counts(records):
+            return {
+                '0': sum(float(row[2]) <= 0 for row in records),
+                '1': sum(float(row[2]) > 0 for row in records),
+            }
+
+        train_class_counts = class_counts(inner_train)
+        validation_class_counts = class_counts(validation)
+        if 0 in train_class_counts.values() or 0 in validation_class_counts.values():
+            raise ValueError(
+                'Compound cold-start inner validation requires both labels in '
+                'the inner-train and validation partitions.'
+            )
+
+        assignment_lines = [
+            '%s\t%s\t%d\t%s' % (row[0], row[1], int(row[2]), partition)
+            for partition, records in (('train', inner_train), ('validation', validation))
+            for row in records
+        ]
+        assignment_hash = hashlib.sha256(
+            ('\n'.join(sorted(assignment_lines)) + '\n').encode('utf-8')
+        ).hexdigest()
+        info = {
+            'strategy': COMPOUND_COLD_START_SPLIT,
+            'seed': int(seed),
+            'ratio': ratio,
+            'inner_train_records': len(inner_train),
+            'validation_records': len(validation),
+            'inner_train_compounds': len(train_compounds),
+            'validation_compounds': len(validation_compound_ids),
+            'class_counts': {
+                'inner_train': train_class_counts,
+                'validation': validation_class_counts,
+            },
+            'assignments_sha256': assignment_hash,
+        }
+        return inner_train, validation, info
+
+    @staticmethod
+    def innerValidationSplitForConfig(conf, data, ratio, seed):
+        strategy = DataSplit.resolveSplitStrategy(conf)
+        if strategy == COMPOUND_COLD_START_SPLIT:
+            return DataSplit.innerCompoundValidationSplit(data, ratio, seed)
+        inner_train, validation, info = DataSplit.innerValidationSplit(data, ratio, seed)
+        info['strategy'] = PAIR_STRATIFIED_SPLIT
         return inner_train, validation, info
 
     @staticmethod
@@ -408,6 +538,144 @@ class DataSplit(object):
         return transformed, info
 
     @staticmethod
+    def _sampleCompoundMatchedNegatives(conf, negative_path, positive_records, seed):
+        positives_by_compound = {}
+        positive_pairs = set()
+        protein_ids = set()
+        for compound_id, protein_id, _ in positive_records:
+            compound_id = str(compound_id)
+            protein_id = str(protein_id)
+            positives_by_compound.setdefault(compound_id, set()).add(protein_id)
+            positive_pairs.add((compound_id, protein_id))
+            protein_ids.add(protein_id)
+
+        file_candidates = {}
+        file_eligible_count = 0
+        if negative_path:
+            for compound_id, protein_id, _ in FileIO.iterDataSet(
+                    conf, str(negative_path), default_rating=0.0):
+                compound_id = str(compound_id)
+                protein_id = str(protein_id)
+                if compound_id not in positives_by_compound:
+                    continue
+                if protein_id not in protein_ids:
+                    continue
+                pair = (compound_id, protein_id)
+                if pair in positive_pairs:
+                    continue
+                candidates = file_candidates.setdefault(compound_id, set())
+                if protein_id in candidates:
+                    continue
+                candidates.add(protein_id)
+                file_eligible_count += 1
+
+        all_proteins = sorted(protein_ids)
+        negative_records = []
+        fallback_compounds = 0
+        fallback_records = 0
+        cartesian_candidate_count = 0
+        for compound_id in sorted(positives_by_compound):
+            positive_proteins = positives_by_compound[compound_id]
+            required = len(positive_proteins)
+            cartesian_candidates = [
+                protein_id for protein_id in all_proteins
+                if protein_id not in positive_proteins
+            ]
+            cartesian_candidate_count += len(cartesian_candidates)
+            if len(cartesian_candidates) < required:
+                raise ValueError(
+                    'Compound %s has only %d unobserved protein candidates, but %d '
+                    'matched negatives are required.' %
+                    (compound_id, len(cartesian_candidates), required)
+                )
+
+            rng = random.Random(_stable_seed(seed, 'compound_negative', compound_id))
+            from_file = sorted(file_candidates.get(compound_id, set()))
+            rng.shuffle(from_file)
+            selected = from_file[:required]
+            if len(selected) < required:
+                fallback_compounds += 1
+                selected_set = set(selected)
+                fallback = [
+                    protein_id for protein_id in cartesian_candidates
+                    if protein_id not in selected_set
+                ]
+                rng.shuffle(fallback)
+                missing = required - len(selected)
+                selected.extend(fallback[:missing])
+                fallback_records += missing
+            negative_records.extend(
+                [compound_id, protein_id, 0.0] for protein_id in selected
+            )
+
+        if negative_path is None:
+            negative_mode = 'compound_matched_cartesian'
+        elif fallback_records:
+            negative_mode = 'compound_matched_file_with_cartesian_fallback'
+        else:
+            negative_mode = 'compound_matched_file'
+        audit = {
+            'negative_mode': negative_mode,
+            'negative_file_eligible_count': file_eligible_count,
+            'negative_cartesian_candidate_count': cartesian_candidate_count,
+            'negative_fallback_compounds': fallback_compounds,
+            'negative_fallback_records': fallback_records,
+        }
+        return negative_records, audit
+
+    @staticmethod
+    def _assignCompoundColdStartFolds(positive_records, negative_records, k, seed):
+        records_by_compound = {}
+        positive_counts = {}
+        for record in positive_records + negative_records:
+            compound_id = str(record[0])
+            records_by_compound.setdefault(compound_id, []).append(record[:])
+            if float(record[2]) > 0:
+                positive_counts[compound_id] = positive_counts.get(compound_id, 0) + 1
+
+        compound_ids = list(records_by_compound)
+        if len(compound_ids) < k:
+            raise ValueError(
+                'Compound cold-start split requires at least %d compounds; found %d.' %
+                (k, len(compound_ids))
+            )
+        compound_ids.sort(
+            key=lambda compound_id: (
+                -positive_counts.get(compound_id, 0),
+                _stable_seed(seed, 'outer_fold', compound_id),
+                str(compound_id),
+            )
+        )
+
+        fold_compounds = [[] for _ in range(k)]
+        fold_positive_loads = [0 for _ in range(k)]
+        for compound_id in compound_ids:
+            fold_index = min(
+                range(k),
+                key=lambda index: (
+                    fold_positive_loads[index],
+                    len(fold_compounds[index]),
+                    index,
+                ),
+            )
+            fold_compounds[fold_index].append(compound_id)
+            fold_positive_loads[fold_index] += positive_counts.get(compound_id, 0)
+
+        fold_records = []
+        for fold_index, compounds in enumerate(fold_compounds):
+            records = []
+            for compound_id in sorted(compounds):
+                records.extend(
+                    sorted(
+                        records_by_compound[compound_id],
+                        key=lambda row: (row[0], row[1], -float(row[2])),
+                    )
+                )
+            random.Random(_stable_seed(seed, 'outer_records', fold_index)).shuffle(records)
+            fold_records.append(records)
+        return fold_records
+
+    @staticmethod
     def prepareStrictFolds(conf, datapath, k):
         if k <= 1 or k > 10:
             raise ValueError('Strict cross-validation requires k between 2 and 10.')
@@ -419,10 +687,15 @@ class DataSplit(object):
             if conf.contains('random.seed')
             else 2026
         )
+        split_strategy = DataSplit.resolveSplitStrategy(conf)
         dataset_path = Path(datapath).resolve()
         dataset_dir = dataset_path.parent
         if conf.contains('split.dir'):
             split_dir = Path(conf['split.dir']).resolve()
+        elif split_strategy == COMPOUND_COLD_START_SPLIT:
+            split_dir = dataset_dir / 'splits' / (
+                'strict_compound_cold_start_seed_%d_k%d' % (seed, k)
+            )
         else:
             split_dir = dataset_dir / 'splits' / ('strict_seed_%d_k%d' % (seed, k))
         reuse = _as_bool(conf['split.reuse'], True) if conf.contains('split.reuse') else True
@@ -441,8 +714,15 @@ class DataSplit(object):
 
         if reuse and manifest_path.exists() and assignments_path.exists():
             manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
-            DataSplit._validateStrictManifest(manifest, expected_sources, seed, k, assignments_path)
-            folds = DataSplit._loadStrictAssignments(assignments_path, k)
+            DataSplit._validateStrictManifest(
+                manifest,
+                expected_sources,
+                seed,
+                k,
+                assignments_path,
+                split_strategy,
+            )
+            folds = DataSplit._loadStrictAssignments(assignments_path, k, split_strategy)
             print('Reusing strict split manifest: %s' % manifest_path)
             return folds, manifest
 
@@ -452,7 +732,17 @@ class DataSplit(object):
         positive_pairs = {(row[0], row[1]) for row in positive_records}
         rng = random.Random(seed)
 
-        if negative_path:
+        if split_strategy == COMPOUND_COLD_START_SPLIT:
+            negative_records, negative_audit = DataSplit._sampleCompoundMatchedNegatives(
+                conf, negative_path, positive_records, seed
+            )
+            negative_mode = negative_audit['negative_mode']
+            candidate_count = negative_audit['negative_cartesian_candidate_count']
+            fold_records = DataSplit._assignCompoundColdStartFolds(
+                positive_records, negative_records, k, seed
+            )
+            split_algorithm = 'compound_group_greedy_balance_v1'
+        elif negative_path:
             negative_records, candidate_count = _sample_negative_file(
                 conf, str(negative_path), len(positive_records), positive_pairs, rng
             )
@@ -467,16 +757,18 @@ class DataSplit(object):
                 - len(positive_pairs)
             )
             negative_mode = 'generated_cartesian'
-
-        rng.shuffle(positive_records)
-        rng.shuffle(negative_records)
-        fold_records = [[] for _ in range(k)]
-        for index, record in enumerate(positive_records):
-            fold_records[index % k].append(record)
-        for index, record in enumerate(negative_records):
-            fold_records[index % k].append(record)
-        for fold_index, records in enumerate(fold_records):
-            random.Random(seed + fold_index + 1).shuffle(records)
+        if split_strategy == PAIR_STRATIFIED_SPLIT:
+            rng.shuffle(positive_records)
+            rng.shuffle(negative_records)
+            fold_records = [[] for _ in range(k)]
+            for index, record in enumerate(positive_records):
+                fold_records[index % k].append(record)
+            for index, record in enumerate(negative_records):
+                fold_records[index % k].append(record)
+            for fold_index, records in enumerate(fold_records):
+                random.Random(seed + fold_index + 1).shuffle(records)
+            split_algorithm = 'class_stratified_round_robin_v2'
+            negative_audit = {}
 
         split_dir.mkdir(parents=True, exist_ok=True)
         assignment_lines = ['left_id\tright_id\tlabel\tfold\n']
@@ -489,6 +781,7 @@ class DataSplit(object):
                 'test_records': len(records),
                 'test_positives': positive_count,
                 'test_negatives': negative_count,
+                'test_compounds': len({str(row[0]) for row in records}),
             })
             test_lines = []
             for left_id, right_id, rating in records:
@@ -501,7 +794,8 @@ class DataSplit(object):
         manifest = {
             'version': STRICT_MANIFEST_VERSION,
             'protocol': 'strict',
-            'split_algorithm': 'class_stratified_round_robin_v2',
+            'split_strategy': split_strategy,
+            'split_algorithm': split_algorithm,
             'created_at_utc': datetime.now(timezone.utc).isoformat(),
             'seed': seed,
             'folds': k,
@@ -515,19 +809,25 @@ class DataSplit(object):
             'fold_stats': fold_stats,
             'strict_guarantees': {
                 'fixed_negative_sample': True,
-                'fixed_stratified_folds': True,
+                'fixed_stratified_folds': split_strategy == PAIR_STRATIFIED_SPLIT,
+                'fixed_group_folds': split_strategy == COMPOUND_COLD_START_SPLIT,
                 'pair_disjoint_train_test': True,
+                'compound_disjoint_train_test': (
+                    split_strategy == COMPOUND_COLD_START_SPLIT
+                ),
                 'training_graph_must_use_fold_training_positives': True,
                 'fixed_hd_side_information': False,
             },
         }
+        manifest.update(negative_audit)
         _write_atomic(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2) + '\n')
-        folds = DataSplit._loadStrictAssignments(assignments_path, k)
+        folds = DataSplit._loadStrictAssignments(assignments_path, k, split_strategy)
         print('Created strict split manifest: %s' % manifest_path)
         return folds, manifest
 
     @staticmethod
-    def _validateStrictManifest(manifest, expected_sources, seed, k, assignments_path):
+    def _validateStrictManifest(
+            manifest, expected_sources, seed, k, assignments_path, split_strategy):
         errors = []
         if manifest.get('version') != STRICT_MANIFEST_VERSION:
             errors.append('manifest version')
@@ -537,6 +837,9 @@ class DataSplit(object):
             errors.append('seed')
         if manifest.get('folds') != k:
             errors.append('folds')
+        manifest_strategy = manifest.get('split_strategy', PAIR_STRATIFIED_SPLIT)
+        if manifest_strategy != split_strategy:
+            errors.append('split strategy')
         if manifest.get('sources') != expected_sources:
             errors.append('source files or hashes')
         if manifest.get('assignments_path') != str(assignments_path):
@@ -550,7 +853,7 @@ class DataSplit(object):
             )
 
     @staticmethod
-    def _loadStrictAssignments(path, k):
+    def _loadStrictAssignments(path, k, split_strategy=PAIR_STRATIFIED_SPLIT):
         fold_records = [[] for _ in range(k)]
         all_records = []
         with open(path, encoding='utf-8') as handle:
@@ -577,5 +880,25 @@ class DataSplit(object):
             test_pairs = {(row[0], row[1]) for row in test}
             if train_pairs & test_pairs:
                 raise ValueError('Strict split contains train/test pair overlap in fold %d.' % fold_index)
+            if split_strategy == COMPOUND_COLD_START_SPLIT:
+                train_compounds = {row[0] for row in train}
+                test_compounds = {row[0] for row in test}
+                if train_compounds & test_compounds:
+                    raise ValueError(
+                        'Compound cold-start split contains train/test compound overlap '
+                        'in fold %d.' % fold_index
+                    )
+                compound_label_counts = {}
+                for row in test:
+                    counts = compound_label_counts.setdefault(row[0], [0, 0])
+                    counts[1 if float(row[2]) > 0 else 0] += 1
+                for compound_id, (negative_count, positive_count) in (
+                        compound_label_counts.items()):
+                    if positive_count != negative_count:
+                        raise ValueError(
+                            'Compound cold-start split requires matched positive/negative '
+                            'counts for compound %s in fold %d.' %
+                            (compound_id, fold_index)
+                        )
             folds.append((train, test))
         return folds

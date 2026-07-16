@@ -123,7 +123,8 @@ def main():
             int(conf['validation.seed'])
             if conf.contains('validation.seed') else base_seed + 100000
         )
-        model_train, validation, validation_info = DataSplit.innerValidationSplit(
+        model_train, validation, validation_info = DataSplit.innerValidationSplitForConfig(
+            conf,
             outer_train,
             early_stopping['ratio'],
             validation_seed_base + args.fold - 1,

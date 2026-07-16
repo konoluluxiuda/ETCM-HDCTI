@@ -112,8 +112,11 @@ def prepare_protocol(config_path, fold_one_based):
             int(conf['validation.seed'])
             if conf.contains('validation.seed') else base_seed + 100000
         )
-        model_train, validation, validation_info = DataSplit.innerValidationSplit(
-            outer_train, early_stopping['ratio'], validation_seed + fold_one_based - 1
+        model_train, validation, validation_info = DataSplit.innerValidationSplitForConfig(
+            conf,
+            outer_train,
+            early_stopping['ratio'],
+            validation_seed + fold_one_based - 1,
         )
     return {
         'config_path': config_path,

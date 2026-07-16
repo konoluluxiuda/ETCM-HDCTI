@@ -19,6 +19,7 @@ class HDR(object):
         self.measure = []
         self.config = config
         self.protocol = config['experiment.protocol'].strip().lower() if config.contains('experiment.protocol') else 'legacy'
+        self.splitStrategy = DataSplit.resolveSplitStrategy(config)
         self.strictFolds = None
         self.strictManifest = None
         self.ratingConfig = OptionConf(config['ratings.setup'])
@@ -37,7 +38,11 @@ class HDR(object):
                 self.strictFolds, self.strictManifest = DataSplit.prepareStrictFolds(
                     config, config['datapath'], k
                 )
-                print('Strict split seed: %d' % self.strictManifest['seed'])
+                print(
+                    'Strict split: strategy=%s seed=%d' %
+                    (self.strictManifest.get('split_strategy', 'pair_stratified'),
+                     self.strictManifest['seed'])
+                )
             elif self.protocol == 'legacy':
                 self.trainingData = FileIO.loadDataSet(config, config['datapath'])
             else:
@@ -101,12 +106,19 @@ class HDR(object):
                 validation = []
                 if self.earlyStopping['enabled']:
                     validation_seed = validation_seed_base + i - 1
-                    train_for_model, validation, validation_info = DataSplit.innerValidationSplit(
-                        train, self.earlyStopping['ratio'], validation_seed
+                    train_for_model, validation, validation_info = (
+                        DataSplit.innerValidationSplitForConfig(
+                            self.config,
+                            train,
+                            self.earlyStopping['ratio'],
+                            validation_seed,
+                        )
                     )
                     print(
-                        'Fold %d inner validation: train %d, validation %d, seed %d, hash %s.' % (
+                        'Fold %d inner validation: strategy=%s train %d, validation %d, '
+                        'seed %d, hash %s.' % (
                             i,
+                            validation_info['strategy'],
                             validation_info['inner_train_records'],
                             validation_info['validation_records'],
                             validation_info['seed'],
