@@ -8,10 +8,12 @@ from util.model_components import (
     EarlyStoppingTracker,
     build_regularization_loss,
     context_interaction_pair_scores,
+    context_masked_pair_scores,
     context_interaction_scores,
     pair_decoder_scores,
     resolve_early_stopping,
     resolve_context_terms,
+    resolve_context_mask_training,
     resolve_counterfactual_context,
     resolve_herb_context_attention,
     resolve_negative_sampling,
@@ -210,9 +212,61 @@ class ModelComponentsTest(unittest.TestCase):
 
         np.testing.assert_allclose(actual, [expected])
 
+    def test_context_mask_replaces_only_requested_id_embedding(self):
+        compounds = np.asarray([[1.0, 2.0]], dtype=np.float32)
+        proteins = np.asarray([[3.0, 4.0]], dtype=np.float32)
+        herb_contexts = np.asarray([[0.5, 0.25]], dtype=np.float32)
+        disease_contexts = np.asarray([[0.2, 0.4]], dtype=np.float32)
+        zero = np.zeros(2, dtype=np.float32)
+        herb_weight = np.asarray([2.0, 3.0], dtype=np.float32)
+        terms = {
+            'compound_disease': False,
+            'herb_protein': True,
+            'herb_disease': False,
+        }
+        compound_masked = context_masked_pair_scores(
+            compounds, proteins, herb_contexts, disease_contexts,
+            [0], [0], zero, herb_weight, zero,
+            mask_compound=True, enabled_terms=terms,
+        )
+        protein_masked = context_masked_pair_scores(
+            compounds, proteins, herb_contexts, disease_contexts,
+            [0], [0], zero, herb_weight, zero,
+            mask_protein=True, enabled_terms=terms,
+        )
+        expected_compound = np.sum(herb_contexts[0] * proteins[0])
+        expected_compound += np.sum(
+            herb_contexts[0] * proteins[0] * herb_weight
+        )
+        expected_protein = np.sum(compounds[0] * disease_contexts[0])
+        expected_protein += np.sum(
+            herb_contexts[0] * disease_contexts[0] * herb_weight
+        )
+        np.testing.assert_allclose(compound_masked, [expected_compound])
+        np.testing.assert_allclose(protein_masked, [expected_protein])
+
     def test_negative_sampling_defaults_to_random(self):
         settings = resolve_negative_sampling(DummyConf({}))
         self.assertEqual(settings, {'strategy': 'random', 'hard_ratio': 0.25})
+
+    def test_context_mask_training_configuration_is_validated(self):
+        self.assertEqual(
+            resolve_context_mask_training(DummyConf({})),
+            {'enabled': False, 'side': 'compound', 'weight': 0.1},
+        )
+        settings = resolve_context_mask_training(DummyConf({
+            'context.mask.training': 'True',
+            'context.mask.side': 'compound',
+            'context.mask.weight': '0.1',
+        }))
+        self.assertTrue(settings['enabled'])
+        with self.assertRaisesRegex(ValueError, 'context.mask.side'):
+            resolve_context_mask_training(DummyConf({'context.mask.side': 'herb'}))
+        with self.assertRaisesRegex(ValueError, 'context.mask.weight'):
+            resolve_context_mask_training(DummyConf({
+                'context.mask.training': 'True',
+                'context.mask.weight': '0',
+            }))
 
     def test_negative_sampling_configuration_is_validated(self):
         settings = resolve_negative_sampling(DummyConf({

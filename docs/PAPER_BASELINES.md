@@ -340,7 +340,21 @@ Max-80 基线收敛审查得到 AUC `0.971097(±0.000862)`、AUPR `0.966143(±0.
 | Precision | 0.925843(±0.004198) | 0.933951(±0.002054) | +0.008107 | 5/5 |
 | F1-score | 0.932296(±0.001360) | 0.937397(±0.000858) | +0.005100 | 5/5 |
 
-五折运行时间为 `2161.121490 s`，相对静态 HerbOnly 增加约 `37.65%`。AUPR、AUC、Precision 和 F1 均在 5/5 折提高，支持将 CHCR 保留为第二项模型创新。该结果目前只覆盖 ETCM mention10 和单训练 seed，不能用 fold 标准差替代多 seed 稳定性结论。反事实审计、Pilot、逐折差值和方法边界见 [COUNTERFACTUAL_HERB_CONTEXT.md](COUNTERFACTUAL_HERB_CONTEXT.md)。
+五折运行时间为 `2161.121490 s`，相对静态 HerbOnly 增加约 `37.65%`。AUPR、AUC、Precision 和 F1 均在 5/5 折提高，支持将 CHCR 保留为第二项模型创新。本表仅为 seed 2026 的单次五折，不能用 fold 标准差替代多 seed 稳定性；后续三 seed 结果见下一节。反事实审计、Pilot、逐折差值和方法边界见 [COUNTERFACTUAL_HERB_CONTEXT.md](COUNTERFACTUAL_HERB_CONTEXT.md)。
+
+### ETCM2.0_core_mention10, 2026-07-16，CHCR 三 seed 稳定性
+
+固定相同 Strict outer folds、inner-validation、donor 和超参数，只改变模型训练 seed。下表中的标准差来自 seed 2026/2027/2028 三个五折均值，不是将 15 个 fold 当作独立重复：
+
+| 指标 | 静态 HerbOnly | HerbOnly + CHCR | CHCR 配对增益 | 正增益 seed |
+|---|---:|---:|---:|---:|
+| AUC | 0.978091(±0.000385) | 0.981993(±0.000160) | +0.003903(±0.000243) | 3/3 |
+| AUPR | 0.974329(±0.000517) | 0.980073(±0.000250) | +0.005744(±0.000410) | 3/3 |
+| Recall | 0.940194(±0.001688) | 0.941981(±0.001314) | +0.001787(±0.000382) | 3/3 |
+| Precision | 0.926226(±0.000726) | 0.934157(±0.000258) | +0.007931(±0.000485) | 3/3 |
+| F1-score | 0.933150(±0.001191) | 0.938047(±0.000780) | +0.004897(±0.000431) | 3/3 |
+
+三个 seed 的 AUPR 配对增益分别为 `+0.006181/+0.005684/+0.005367`。AUC、AUPR、Precision 和 F1 在全部 15 个 fold 中均同向提高，Recall 为 12/15，因此通过预注册强稳定性条件。详细统计协议见 [COUNTERFACTUAL_HERB_CONTEXT.md](COUNTERFACTUAL_HERB_CONTEXT.md)。
 
 ### TCM-Suite, 2026-07-02 22:30
 

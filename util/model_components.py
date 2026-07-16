@@ -93,6 +93,31 @@ def resolve_counterfactual_context(config):
     return settings
 
 
+def resolve_context_mask_training(config):
+    enabled = _config_bool(config, 'context.mask.training', False)
+    side = (
+        str(config['context.mask.side']).strip().lower()
+        if config.contains('context.mask.side') else 'compound'
+    )
+    weight = (
+        float(config['context.mask.weight'])
+        if config.contains('context.mask.weight') else 0.1
+    )
+    if side not in {'compound', 'protein', 'both'}:
+        raise ValueError('context.mask.side must be compound, protein, or both.')
+    if weight < 0:
+        raise ValueError('context.mask.weight cannot be negative.')
+    if enabled and weight == 0:
+        raise ValueError(
+            'context.mask.weight must be positive when context.mask.training=True.'
+        )
+    return {
+        'enabled': enabled,
+        'side': side,
+        'weight': weight,
+    }
+
+
 def counterfactual_margin_values(
         factual_context_logits,
         counterfactual_context_logits,
@@ -319,6 +344,61 @@ def context_interaction_pair_scores(
             )
     if enabled_terms.get('herb_disease', False):
         scores += np.sum(herb_contexts * disease_contexts * herb_disease_weight, axis=1)
+    return scores
+
+
+def context_masked_pair_scores(
+        compound_embeddings,
+        protein_embeddings,
+        compound_contexts,
+        protein_contexts,
+        compound_indices,
+        protein_indices,
+        compound_disease_weight,
+        herb_protein_weight,
+        herb_disease_weight,
+        mask_compound=False,
+        mask_protein=False,
+        enabled_terms=None,
+        decoder_type='dot',
+        decoder_weights=None):
+    compound_indices = np.asarray(compound_indices, dtype=np.int64)
+    protein_indices = np.asarray(protein_indices, dtype=np.int64)
+    if compound_indices.shape != protein_indices.shape:
+        raise ValueError('Compound and protein index arrays must have the same shape.')
+    compounds = np.asarray(compound_embeddings)[compound_indices]
+    proteins = np.asarray(protein_embeddings)[protein_indices]
+    herb_contexts = np.asarray(compound_contexts)[compound_indices]
+    disease_contexts = np.asarray(protein_contexts)[protein_indices]
+    effective_compounds = herb_contexts if mask_compound else compounds
+    effective_proteins = disease_contexts if mask_protein else proteins
+    if enabled_terms is None:
+        enabled_terms = {
+            'compound_disease': True,
+            'herb_protein': True,
+            'herb_disease': True,
+        }
+    scores = pair_decoder_scores(
+        effective_compounds,
+        effective_proteins,
+        decoder_type=decoder_type,
+        decoder_weights=decoder_weights,
+    )
+    if enabled_terms.get('compound_disease', False):
+        scores += np.sum(
+            effective_compounds * disease_contexts * compound_disease_weight,
+            axis=1,
+        )
+    if enabled_terms.get('herb_protein', False):
+        scores += np.sum(
+            herb_contexts * effective_proteins * herb_protein_weight,
+            axis=1,
+        )
+    if enabled_terms.get('herb_disease', False):
+        scores += np.sum(
+            herb_contexts * disease_contexts * herb_disease_weight,
+            axis=1,
+        )
     return scores
 
 

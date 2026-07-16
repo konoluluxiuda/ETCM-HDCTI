@@ -25,6 +25,7 @@ from util.model_components import (
     build_regularization_loss,
     context_interaction_pair_scores,
     resolve_context_terms,
+    resolve_context_mask_training,
     resolve_counterfactual_context,
     resolve_early_stopping,
     resolve_herb_context_attention,
@@ -224,6 +225,7 @@ class HDCTI(herbRecommender):
         self.use_context_interaction = any(self.context_terms.values())
         self.herb_context_attention = resolve_herb_context_attention(self.config)
         self.counterfactual_context = resolve_counterfactual_context(self.config)
+        self.context_mask_training = resolve_context_mask_training(self.config)
         if (
             self.herb_context_attention['mode'] in TARGET_HERB_ATTENTION_MODES
             and not self.context_terms['herb_protein']
@@ -308,6 +310,17 @@ class HDCTI(herbRecommender):
             self.counterfactual_donor_eligible = None
             self.counterfactual_u_idx = None
             self.counterfactual_eligible_mask = None
+        if self.context_mask_training['enabled']:
+            if getattr(self.data, 'protocol', 'legacy') != 'strict':
+                raise ValueError(
+                    'Context-masked training requires experiment.protocol=strict.'
+                )
+            print(
+                'CMIT: enabled side=%s weight=%g' % (
+                    self.context_mask_training['side'],
+                    self.context_mask_training['weight'],
+                )
+            )
         self.pair_decoder = resolve_pair_decoder(self.config)
         print(
             'Candidate context terms: C-Dctx=%s, Hctx-P=%s, Hctx-Dctx=%s' % (
@@ -674,23 +687,31 @@ class HDCTI(herbRecommender):
         #self.v_embedding = self.final_pdedge
 
 
-    def buildBasePairLogits(self):
-        dot_logits = tf.reduce_sum(tf.multiply(self.u_embedding, self.v_embedding), 1)
+    def buildBasePairLogits(self, compound_embedding=None, protein_embedding=None):
+        compound_embedding = (
+            self.u_embedding if compound_embedding is None else compound_embedding
+        )
+        protein_embedding = (
+            self.v_embedding if protein_embedding is None else protein_embedding
+        )
+        dot_logits = tf.reduce_sum(
+            tf.multiply(compound_embedding, protein_embedding), 1
+        )
         decoder_type = self.pair_decoder['type']
         if decoder_type == 'dot':
             return dot_logits
         if decoder_type == 'bilinear':
             transformed_compound = tf.matmul(
-                self.u_embedding, self.weights['decoder_bilinear']
+                compound_embedding, self.weights['decoder_bilinear']
             )
-            return tf.reduce_sum(transformed_compound * self.v_embedding, axis=1)
+            return tf.reduce_sum(transformed_compound * protein_embedding, axis=1)
         if decoder_type == 'mlp':
             pair_features = tf.concat(
                 [
-                    self.u_embedding,
-                    self.v_embedding,
-                    self.u_embedding * self.v_embedding,
-                    tf.abs(self.u_embedding - self.v_embedding),
+                    compound_embedding,
+                    protein_embedding,
+                    compound_embedding * protein_embedding,
+                    tf.abs(compound_embedding - protein_embedding),
                 ],
                 axis=1,
             )
@@ -707,16 +728,24 @@ class HDCTI(herbRecommender):
             return dot_logits + residual
         raise ValueError('Unsupported pair decoder: %s' % decoder_type)
 
-    def buildPairLogits(self):
-        logits = self.buildBasePairLogits()
+    def buildPairLogits(self, compound_embedding=None, protein_embedding=None):
+        compound_embedding = (
+            self.u_embedding if compound_embedding is None else compound_embedding
+        )
+        protein_embedding = (
+            self.v_embedding if protein_embedding is None else protein_embedding
+        )
+        logits = self.buildBasePairLogits(
+            compound_embedding, protein_embedding
+        )
         if self.context_terms['compound_disease']:
             logits += tf.reduce_sum(
-                self.u_embedding * self.v_context_embedding
+                compound_embedding * self.v_context_embedding
                 * self.weights['context_compound_disease'], axis=1
             )
         if self.context_terms['herb_protein']:
             logits += tf.reduce_sum(
-                self.u_context_embedding * self.v_embedding
+                self.u_context_embedding * protein_embedding
                 * self.weights['context_herb_protein'], axis=1
             )
             if self.herb_context_attention['mode'] == 'target_residual_attention':
@@ -724,7 +753,7 @@ class HDCTI(herbRecommender):
                     self.target_herb_context_embedding - self.u_context_embedding
                 )
                 logits += tf.reduce_sum(
-                    context_delta * self.v_embedding
+                    context_delta * protein_embedding
                     * self.weights['context_target_herb_residual'], axis=1
                 )
         if self.context_terms['herb_disease']:
@@ -733,6 +762,28 @@ class HDCTI(herbRecommender):
                 * self.weights['context_herb_disease'], axis=1
             )
         return logits
+
+    def buildContextMaskedTrainingLoss(self):
+        if not self.context_mask_training['enabled']:
+            return tf.constant(0.0, dtype=tf.float32)
+        side = self.context_mask_training['side']
+        compound_embedding = (
+            self.u_context_embedding if side in {'compound', 'both'}
+            else self.u_embedding
+        )
+        protein_embedding = (
+            self.v_context_embedding if side in {'protein', 'both'}
+            else self.v_embedding
+        )
+        masked_logits = self.buildPairLogits(
+            compound_embedding=compound_embedding,
+            protein_embedding=protein_embedding,
+        )
+        raw_loss = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(
+            labels=self.neg_disease_embedding,
+            logits=masked_logits,
+        ))
+        return self.context_mask_training['weight'] * raw_loss
 
     def buildRegularizationLoss(self):
         weight_decay = float(self.config['weight.reg']) if self.config.contains('weight.reg') else 0.01
@@ -786,6 +837,7 @@ class HDCTI(herbRecommender):
                 'compound_context': self.final_compound_context,
                 'protein_context': self.final_protein_context,
                 'herb_edge': self.final_hcedge,
+                'disease_edge': self.final_pdedge,
                 'weights': self.weights,
             },
             feed_dict={self.isTraining: 0},
@@ -808,7 +860,8 @@ class HDCTI(herbRecommender):
             temperature=self.herb_context_attention['temperature'],
         )
 
-    def evaluateValidation(self, state, metric):
+    def evaluateValidation(
+            self, state, metric, mask_compound=False, mask_protein=False):
         if not self.validationData:
             raise ValueError('Early stopping is enabled but no inner validation records were provided.')
 
@@ -832,36 +885,55 @@ class HDCTI(herbRecommender):
             raise ValueError('Inner validation must contain both positive and negative records.')
         zero_weight = np.zeros(self.emb_size, dtype=np.float32)
         weights = state['weights']
-        target_compound_contexts, _ = self.targetConditionedHerbContexts(
-            state, compound_indices, protein_indices
-        )
-        pair_compound_contexts = (
-            target_compound_contexts
-            if self.herb_context_attention['mode'] == 'target_attention'
-            else None
-        )
-        residual_compound_contexts = (
-            target_compound_contexts
-            if self.herb_context_attention['mode'] == 'target_residual_attention'
-            else None
-        )
-        logits = context_interaction_pair_scores(
-            state['compound'],
-            state['protein'],
-            state['compound_context'],
-            state['protein_context'],
-            compound_indices,
-            protein_indices,
-            weights.get('context_compound_disease', zero_weight),
-            weights.get('context_herb_protein', zero_weight),
-            weights.get('context_herb_disease', zero_weight),
-            enabled_terms=self.context_terms,
-            decoder_type=self.pair_decoder['type'],
-            decoder_weights=weights,
-            pair_compound_contexts=pair_compound_contexts,
-            residual_compound_contexts=residual_compound_contexts,
-            target_residual_weight=weights.get('context_target_herb_residual'),
-        )
+        if mask_compound or mask_protein:
+            from util.model_components import context_masked_pair_scores
+            logits = context_masked_pair_scores(
+                state['compound'],
+                state['protein'],
+                state['compound_context'],
+                state['protein_context'],
+                compound_indices,
+                protein_indices,
+                weights.get('context_compound_disease', zero_weight),
+                weights.get('context_herb_protein', zero_weight),
+                weights.get('context_herb_disease', zero_weight),
+                mask_compound=mask_compound,
+                mask_protein=mask_protein,
+                enabled_terms=self.context_terms,
+                decoder_type=self.pair_decoder['type'],
+                decoder_weights=weights,
+            )
+        else:
+            target_compound_contexts, _ = self.targetConditionedHerbContexts(
+                state, compound_indices, protein_indices
+            )
+            pair_compound_contexts = (
+                target_compound_contexts
+                if self.herb_context_attention['mode'] == 'target_attention'
+                else None
+            )
+            residual_compound_contexts = (
+                target_compound_contexts
+                if self.herb_context_attention['mode'] == 'target_residual_attention'
+                else None
+            )
+            logits = context_interaction_pair_scores(
+                state['compound'],
+                state['protein'],
+                state['compound_context'],
+                state['protein_context'],
+                compound_indices,
+                protein_indices,
+                weights.get('context_compound_disease', zero_weight),
+                weights.get('context_herb_protein', zero_weight),
+                weights.get('context_herb_disease', zero_weight),
+                enabled_terms=self.context_terms,
+                decoder_type=self.pair_decoder['type'],
+                decoder_weights=weights,
+                pair_compound_contexts=pair_compound_contexts,
+                residual_compound_contexts=residual_compound_contexts,
+                target_residual_weight=weights.get('context_target_herb_residual'),
+            )
         scores = 1.0 / (1.0 + np.exp(-np.clip(logits, -50, 50)))
         if metric == 'aupr':
             return float(average_precision_score(labels, scores))
@@ -891,7 +963,8 @@ class HDCTI(herbRecommender):
         counterfactual_loss, counterfactual_active, counterfactual_margin = (
             self.buildCounterfactualContextLoss()
         )
-        loss = bce_loss + reg_loss + counterfactual_loss
+        context_mask_loss = self.buildContextMaskedTrainingLoss()
+        loss = bce_loss + reg_loss + counterfactual_loss + context_mask_loss
 
         optimizer = tf.train.AdamOptimizer(self.lRate)
         train = optimizer.minimize(loss)
@@ -950,13 +1023,14 @@ class HDCTI(herbRecommender):
                     feed_dict[self.counterfactual_eligible_mask] = (
                         self.counterfactual_donor_eligible[compound_batch]
                     )
-                _, l, cf_l, cf_active, cf_margin = self.sess.run(
+                _, l, cf_l, cf_active, cf_margin, cmit_l = self.sess.run(
                     [
                         train,
                         loss,
                         counterfactual_loss,
                         counterfactual_active,
                         counterfactual_margin,
+                        context_mask_loss,
                     ],
                     feed_dict=feed_dict,
                 )
@@ -979,9 +1053,12 @@ class HDCTI(herbRecommender):
                             self.counterfactual_context['draws'],
                         )
                     )
+                cmit_suffix = ''
+                if self.context_mask_training['enabled']:
+                    cmit_suffix = ' cmit_loss: %s' % cmit_l
                 print(
                     'training: %d/%d batch %d/%d loss: %s batch_time: %s '
-                    'elapsed: %s eta: %s%s' % (
+                    'elapsed: %s eta: %s%s%s' % (
                         epoch + 1,
                         self.maxEpoch,
                         n + 1,
@@ -991,6 +1068,7 @@ class HDCTI(herbRecommender):
                         format_duration(elapsed),
                         format_duration(eta),
                         chcr_suffix,
+                        cmit_suffix,
                     )
                 )
             print('epoch %d/%d finished in %s' %
@@ -1043,6 +1121,27 @@ class HDCTI(herbRecommender):
             self.early_stopping_summary = None
 
         state = self.fetchModelState()
+        self.context_mask_summary = None
+        if self.context_mask_training['enabled'] and self.validationData:
+            side = self.context_mask_training['side']
+            masked_value = self.evaluateValidation(
+                state,
+                early_stopping['metric'] if early_stopping['enabled'] else 'aupr',
+                mask_compound=side in {'compound', 'both'},
+                mask_protein=side in {'protein', 'both'},
+            )
+            self.context_mask_summary = {
+                'side': side,
+                'metric': (
+                    early_stopping['metric'] if early_stopping['enabled'] else 'aupr'
+                ),
+                'value': masked_value,
+            }
+            print('CMIT masked validation: side=%s %s=%.6f' % (
+                side,
+                self.context_mask_summary['metric'].upper(),
+                masked_value,
+            ))
         self.u = state['compound']
         self.i = state['protein']
         self.u_context = state['compound_context']

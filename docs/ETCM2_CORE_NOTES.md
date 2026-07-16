@@ -570,7 +570,9 @@ Max-120 fold 1 诊断已完成，运行时间 `991.927255 s`，未执行 outer-t
 | Precision | 0.925843(±0.004198) | 0.933951(±0.002054) | +0.008107 | 5/5 |
 | F1-score | 0.932296(±0.001360) | 0.937397(±0.000858) | +0.005100 | 5/5 |
 
-五折运行时间为 `2161.121490 s`，相对静态 HerbOnly 增加约 `37.65%`。Fold 5 checkpoint 为 `saved_model/2026-07-15 20-55-35/hdcti_model.ckpt`。该结果支持将 CHCR 冻结为第二项模型创新；当前仍需在其他数据集和多个训练 seed 上验证，且不能把反事实上下文排序约束表述为因果证明。完整审计、Pilot 和逐折配对差值见 [COUNTERFACTUAL_HERB_CONTEXT.md](COUNTERFACTUAL_HERB_CONTEXT.md)。
+五折运行时间为 `2161.121490 s`，相对静态 HerbOnly 增加约 `37.65%`。Fold 5 checkpoint 为 `saved_model/2026-07-15 20-55-35/hdcti_model.ckpt`。该 seed 2026 结果支持将 CHCR 冻结为第二项模型创新，但本身不能替代多 seed 验证，也不能把反事实上下文排序约束表述为因果证明。完整审计、Pilot 和逐折配对差值见 [COUNTERFACTUAL_HERB_CONTEXT.md](COUNTERFACTUAL_HERB_CONTEXT.md)。
+
+三 seed 稳定性实验随后完成。seed 2026/2027/2028 的 AUPR 配对增益分别为 `+0.006181/+0.005684/+0.005367`；三 seed 汇总时，静态 HerbOnly AUPR 为 `0.974329(±0.000517)`，CHCR 为 `0.980073(±0.000250)`，配对增益为 `+0.005744(±0.000410)`。这里先对每个 seed 的五折求均值，再在三个 seed 间计算 sample standard deviation。AUC、AUPR、Precision 和 F1 在合计 15 个 fold 中全部同向提升，Recall 为 12/15，满足预注册强稳定性条件。
 
 ### 2026-07-04 ETCM2.0_core_cpdeg3 GPU Full-Attention 运行
 

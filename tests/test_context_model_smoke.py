@@ -63,6 +63,9 @@ class ContextModelSmokeTest(unittest.TestCase):
                 'context.compound_disease': 'False',
                 'context.herb_protein': 'True',
                 'context.herb_disease': 'False',
+                'context.mask.training': 'True',
+                'context.mask.side': 'compound',
+                'context.mask.weight': '0.1',
                 'attention.max.nodes': '10',
                 'output.setup': 'off -dir ./results/',
                 'gpu.allow_growth': 'False',
@@ -141,6 +144,9 @@ class ContextModelSmokeTest(unittest.TestCase):
                 'context.compound_disease': 'True',
                 'context.herb_protein': 'True',
                 'context.herb_disease': 'False',
+                'context.mask.training': 'True',
+                'context.mask.side': 'compound',
+                'context.mask.weight': '0.1',
                 'attention.max.nodes': '10',
                 'output.setup': 'off -dir ./results/',
                 'gpu.allow_growth': 'False',
@@ -161,9 +167,10 @@ class ContextModelSmokeTest(unittest.TestCase):
             ))
             logits = model.buildPairLogits()
             labels = model.neg_disease_embedding
+            context_mask_loss = model.buildContextMaskedTrainingLoss()
             loss = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(
                 labels=labels, logits=logits
-            )) + model.buildRegularizationLoss()
+            )) + model.buildRegularizationLoss() + context_mask_loss
             train = tf.train.AdamOptimizer(model.lRate).minimize(loss)
             model.sess.run(tf.global_variables_initializer())
             feed = {
@@ -172,7 +179,9 @@ class ContextModelSmokeTest(unittest.TestCase):
                 model.neg_idx: [1.0, 0.0],
                 model.isTraining: 1,
             }
-            before = model.sess.run(loss, feed_dict=feed)
+            before, initial_context_mask_loss = model.sess.run(
+                [loss, context_mask_loss], feed_dict=feed
+            )
             model.sess.run(train, feed_dict=feed)
             after, context_weight, disabled_context_weight, bilinear_weight = model.sess.run(
                 [
@@ -187,6 +196,7 @@ class ContextModelSmokeTest(unittest.TestCase):
 
         self.assertTrue(np.isfinite(before))
         self.assertTrue(np.isfinite(after))
+        self.assertGreater(float(initial_context_mask_loss), 0.0)
         self.assertGreater(float(np.linalg.norm(context_weight)), 0.0)
         self.assertEqual(float(np.linalg.norm(disabled_context_weight)), 0.0)
         self.assertGreater(
