@@ -620,6 +620,14 @@ F1-score: 0.931568(±0.001613)
 - 该运行完成全部五折，并生成了汇总指标。
 - 运行时间约为 `80.97 min`。
 
+## 2026-07-16 ETCM2.0_core_mention10 成分 C-P 冷启动五折
+
+使用按 compound 整体隔离的 Strict 五折后，NoContext、HerbOnly 和 HerbOnly + CHCR 的 AUPR 分别为 `0.324662(±0.001592)`、`0.893434(±0.021620)` 和 `0.915948(±0.004821)`。HerbOnly 相对 NoContext 提高 `0.568772`，CHCR 相对 HerbOnly 继续提高 `0.022514`；对应 AUC 为 `0.112368/0.899021/0.923912`。测试 compound 仍具有 H-C 侧信息，但其全部 C-P 标签均不进入训练，因此该结果属于 transductive compound C-P cold-start，不是无侧信息的新实体归纳预测。
+
+CHCR 在固定 `0.5` 阈值下的 Recall/F1 为 `0.121021/0.213150`，与其高 AUC/AUPR 不一致，说明决策阈值偏移。冻结 checkpoint 后已完成纯推理阈值评价：HerbOnly 的 Recall/Precision/F1 为 `0.865500/0.804726/0.833607`，CHCR 为 `0.890830/0.829265/0.858833`，对应增益为 `+0.025330/+0.024539/+0.025226`。CHCR 的低固定阈值 Recall 因而主要来自决策边界偏移，而不是排序能力下降。
+
+NoContext 阈值评价得到 Recall `0.999423`、Precision `0.499856` 和 F1 `0.666410`，实质是 1:1 测试集上的近似全正预测，不能解释为模型恢复。这里仅做 inner-validation 驱动的决策阈值选择，不代表 sigmoid 概率已校准。详细记录见 [COMPOUND_COLD_START_PROTOCOL.md](COMPOUND_COLD_START_PROTOCOL.md)。
+
 ## 重建命令
 
 从仓库根目录执行：

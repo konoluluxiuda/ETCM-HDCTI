@@ -442,3 +442,25 @@ Fold 5 终端输出：
 - 该 Symmap 运行使用 `attention.max.nodes=2000`，由于 Symmap 的化合物/蛋白节点都远超 2000，因此化合物和蛋白的 full self-attention 都被跳过。
 - 该设置是针对本地 RTX 5060 Ti / TensorFlow 2.6.2 环境的 GPU 稳定性配置，并不是原始无限制 full self-attention 行为。
 - 本地结果在 AUC、AUPR 和 F1-score 上接近论文结果。Recall 高于论文值，而 Precision 较低并且是最大的差距。
+
+### ETCM2.0_core_mention10 成分 C-P 冷启动，2026-07-16
+
+该实验按 compound 整体划分外层五折和内层验证。测试 compound 没有任何训练 C-P 标签，但仍可使用固定 H-C 侧信息；三组模型共享 seed 2026、同一 manifest、Dot decoder、max-100 上限和 validation AUPR 早停。
+
+| 模型 | AUC | AUPR | Recall@0.5 | Precision@0.5 | F1@0.5 |
+|---|---:|---:|---:|---:|---:|
+| NoContext | 0.112368(±0.003231) | 0.324662(±0.001592) | 0.087176(±0.048737) | 0.115651(±0.032939) | 0.097923(±0.043782) |
+| HerbOnly | 0.899021(±0.014472) | 0.893434(±0.021620) | 0.560517(±0.044423) | 0.918498(±0.015352) | 0.695618(±0.039199) |
+| HerbOnly + CHCR | 0.923912(±0.004491) | 0.915948(±0.004821) | 0.121021(±0.041026) | 0.967994(±0.006941) | 0.213150(±0.066035) |
+
+HerbOnly 相对 NoContext 的 AUC/AUPR 增益为 `+0.786653/+0.568772`；CHCR 相对 HerbOnly 继续提高 `+0.024891/+0.022514`，并将 AUPR 折间标准差从 `0.021620` 降至 `0.004821`。这为 Hctx-P 和 CHCR 的冷启动价值提供了比随机边协议更直接的证据。
+
+对冻结 checkpoint 进行纯推理阈值评价后，每折只在 inner-validation 上选择最大 F1 阈值，再应用于 outer-test：
+
+| 模型 | Recall | Precision | F1-score |
+|---|---:|---:|---:|
+| NoContext | 0.999423(±0.000530) | 0.499856(±0.000132) | 0.666410(±0.000235) |
+| HerbOnly | 0.865500(±0.015781) | 0.804726(±0.028431) | 0.833607(±0.012639) |
+| HerbOnly + CHCR | 0.890830(±0.012908) | 0.829265(±0.010573) | 0.858833(±0.004066) |
+
+CHCR 相对 HerbOnly 的校准 Recall、Precision 和 F1 分别提高 `0.025330`、`0.024539` 和 `0.025226`。NoContext 的 F1 约为 `2/3` 是平衡测试集上几乎全判正的退化结果，不能视为性能恢复。该过程只选择决策阈值，并未完成概率校准；模型排序结论仍以 AUC/AUPR 为主。协议、逐折阈值和 checkpoint 映射见 [COMPOUND_COLD_START_PROTOCOL.md](COMPOUND_COLD_START_PROTOCOL.md)。
