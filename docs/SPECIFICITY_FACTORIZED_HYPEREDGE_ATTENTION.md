@@ -135,6 +135,37 @@ attention.max.nodes=2000
 
 未通过时停止该结构，不搜索 temperature、prior scale、单侧开关或更高维 attention MLP。通过后才在四库标准 Strict 随机 fold 1 上验证总体性能和 degree 分层效果；仍通过才考虑完整五折及 H-C/P-D 侧消融。
 
-## 8. 研究边界
+## 8. 首轮 Pilot 结果
+
+| 数据集 | Hctx-P validation AUPR | SP-FBHA validation AUPR | 增量 | Hctx-P 时间 | SP-FBHA 时间 | 时间倍率 |
+|---|---:|---:|---:|---:|---:|---:|
+| TCM-Suite | 0.604804 | 0.655715 | +0.050911 | 25.72 s | 30.36 s | 1.18x |
+| TCMSP | 0.948989 | 0.948049 | -0.000940 | 40.96 s | 68.26 s | 1.67x |
+| SymMap2.0 | 0.806072 | 0.817453 | +0.011381 | 27.05 s | 36.24 s | 1.34x |
+| ETCM2.0 | 0.861716 | 0.871596 | +0.009880 | 75.16 s | 161.77 s | 2.15x |
+| Macro mean | 0.805395 | 0.823203 | **+0.017808** | - | - | - |
+
+准确性条件全部通过：macro 增量超过 `+0.002`，3/4 数据集提高，TCMSP 的最大下降仅为 `0.000940`。四库参数均获得非零梯度；学习主要集中在 H-C node-to-edge 向量，P-D 和 edge-to-node 向量整体较小，后续若进入正式消融需要验证增益是否主要来自 H-C 侧。
+
+首轮 ETCM 运行时间为基线的 `2.15x`，超过预注册 `2x` 上限，因此当前判定为：
+
+```text
+准确性 Gate：通过
+可学习性 Gate：通过
+效率 Gate：暂未通过
+总体：等待等价实现效率复核
+```
+
+性能分析发现，原实现对每层、每侧、每个 batch 都调用 `tf.sparse_reorder`，ETCM 的约两百万 P-D incidence 会被重复排序。现已在 NumPy 初始化阶段一次性生成 `(edge,node)` 与 `(node,edge)` 两种字典序索引，并删除训练图中的动态 SparseReorder。该修改不改变 attention logits、分段 softmax、稀疏矩阵值或模型参数，只消除重复排序。
+
+效率复核只重跑 ETCM 相同配置：
+
+```bash
+./run_hdcti.sh configs/HDCTI_etcm_mention10_cold_start_sp_fbha_pilot.conf
+```
+
+复核时 validation AUPR 仍需不低于 `0.856716`（冻结 Hctx-P `0.861716` 减去最大允许下降 `0.005`），运行时间需不超过 `150.32 s`。若仍超过，SP-FBHA 按预注册效率条件停止；不通过降低 P-D 覆盖、修改 temperature 或关闭单侧来规避门槛。
+
+## 9. 研究边界
 
 SP-FBHA 是当前仓库中的候选实现名称，不据此声称文献首创。进入论文主模型前仍需完成针对 hypergraph attention、incidence attention 和 degree/specificity prior 的近邻工作核验，并明确与已有 HyperGAT/HNHN/AllSet 类方法的结构差异。

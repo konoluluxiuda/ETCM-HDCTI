@@ -5,6 +5,7 @@ import numpy as np
 from util.hyperedge_attention import (
     factorized_incidence_attention,
     hyperedge_specificity_prior,
+    ordered_incidence_ids,
     segment_softmax,
 )
 from util.model_components import resolve_hyperedge_attention
@@ -22,6 +23,24 @@ class DummyConf(object):
 
 
 class HyperedgeAttentionTest(unittest.TestCase):
+    def test_incidence_ids_are_preordered_in_both_directions(self):
+        ordered = ordered_incidence_ids(
+            edge_ids=[1, 0, 1, 0],
+            node_ids=[0, 2, 1, 0],
+        )
+        self.assertEqual(
+            list(zip(
+                ordered['forward_edge_ids'], ordered['forward_node_ids']
+            )),
+            [(0, 0), (0, 2), (1, 0), (1, 1)],
+        )
+        self.assertEqual(
+            list(zip(
+                ordered['reverse_node_ids'], ordered['reverse_edge_ids']
+            )),
+            [(0, 0), (0, 1), (1, 1), (2, 0)],
+        )
+
     def test_configuration_defaults_off_and_validates_enabled_mode(self):
         defaults = resolve_hyperedge_attention(DummyConf({}))
         self.assertFalse(defaults['enabled'])

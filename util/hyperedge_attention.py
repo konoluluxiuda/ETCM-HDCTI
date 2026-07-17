@@ -1,6 +1,22 @@
 import numpy as np
 
 
+def ordered_incidence_ids(edge_ids, node_ids):
+    """Return forward (edge,node) and reverse (node,edge) sorted IDs."""
+    edge_ids = np.asarray(edge_ids, dtype=np.int64).reshape(-1)
+    node_ids = np.asarray(node_ids, dtype=np.int64).reshape(-1)
+    if edge_ids.shape != node_ids.shape:
+        raise ValueError("edge_ids and node_ids must have identical shapes.")
+    forward_order = np.lexsort((node_ids, edge_ids))
+    reverse_order = np.lexsort((edge_ids, node_ids))
+    return {
+        "forward_edge_ids": edge_ids[forward_order],
+        "forward_node_ids": node_ids[forward_order],
+        "reverse_edge_ids": edge_ids[reverse_order],
+        "reverse_node_ids": node_ids[reverse_order],
+    }
+
+
 def hyperedge_specificity_prior(edge_degrees, node_count, clip=3.0):
     """Return a standardized log inverse-degree prior for active hyperedges."""
     degrees = np.asarray(edge_degrees, dtype=np.float64).reshape(-1)

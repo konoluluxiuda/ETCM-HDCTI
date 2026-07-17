@@ -40,7 +40,10 @@ from util.support_router import (
     monotonic_context_gate,
     softplus,
 )
-from util.hyperedge_attention import hyperedge_specificity_prior
+from util.hyperedge_attention import (
+    hyperedge_specificity_prior,
+    ordered_incidence_ids,
+)
 from sklearn.metrics import average_precision_score, roc_auc_score
 # tf.compat.v1.set_random_seed(4321)
 from util.io import FileIO
@@ -195,6 +198,9 @@ class HDCTI(herbRecommender):
                 self.compound_herb_mask[compound_index, :degree] = 1.0
         hc_attention_edge_ids = np.asarray(hc_coo.row, dtype=np.int32)
         hc_attention_node_ids = np.asarray(hc_coo.col, dtype=np.int32)
+        hc_attention_ids = ordered_incidence_ids(
+            hc_attention_edge_ids, hc_attention_node_ids
+        )
         hc_edge_degrees = np.bincount(
             hc_attention_edge_ids, minlength=self.num_herbs
         ).astype(np.float32)
@@ -229,6 +235,9 @@ class HDCTI(herbRecommender):
         pd_coo = pd.tocoo()
         pd_attention_edge_ids = np.asarray(pd_coo.col, dtype=np.int32)
         pd_attention_node_ids = np.asarray(pd_coo.row, dtype=np.int32)
+        pd_attention_ids = ordered_incidence_ids(
+            pd_attention_edge_ids, pd_attention_node_ids
+        )
         pd_edge_degrees = np.bincount(
             pd_attention_edge_ids, minlength=self.num_diseases
         ).astype(np.float32)
@@ -633,8 +642,10 @@ class HDCTI(herbRecommender):
 
         def factorized_hyperedge_propagation(
                 node_embeddings,
-                edge_ids,
-                node_ids,
+                forward_edge_ids,
+                forward_node_ids,
+                reverse_edge_ids,
+                reverse_node_ids,
                 edge_count,
                 node_count,
                 specificity_prior,
@@ -647,15 +658,15 @@ class HDCTI(herbRecommender):
                 node_embeddings * node_score_vector, axis=1
             )
             node_to_edge_values = unsorted_segment_softmax(
-                tf.gather(node_logits, node_ids) / temperature,
-                edge_ids,
+                tf.gather(node_logits, forward_node_ids) / temperature,
+                forward_edge_ids,
                 edge_count,
             )
-            node_to_edge = tf.sparse_reorder(tf.SparseTensor(
-                tf.stack([edge_ids, node_ids], axis=1),
+            node_to_edge = tf.SparseTensor(
+                tf.stack([forward_edge_ids, forward_node_ids], axis=1),
                 node_to_edge_values,
                 [edge_count, node_count],
-            ))
+            )
             edge_embeddings = tf.sparse_tensor_dense_matmul(
                 node_to_edge,
                 node_embeddings,
@@ -665,15 +676,15 @@ class HDCTI(herbRecommender):
                 edge_embeddings * edge_score_vector, axis=1
             ) + prior_scale * specificity_prior
             edge_to_node_values = unsorted_segment_softmax(
-                tf.gather(edge_logits, edge_ids) / temperature,
-                node_ids,
+                tf.gather(edge_logits, reverse_edge_ids) / temperature,
+                reverse_node_ids,
                 node_count,
             )
-            edge_to_node = tf.sparse_reorder(tf.SparseTensor(
-                tf.stack([node_ids, edge_ids], axis=1),
+            edge_to_node = tf.SparseTensor(
+                tf.stack([reverse_node_ids, reverse_edge_ids], axis=1),
                 edge_to_node_values,
                 [node_count, edge_count],
-            ))
+            )
             propagated_nodes = tf.sparse_tensor_dense_matmul(
                 edge_to_node,
                 edge_embeddings,
@@ -682,19 +693,31 @@ class HDCTI(herbRecommender):
             return edge_embeddings, propagated_nodes
 
         hc_attention_edge_ids_tf = tf.constant(
-            hc_attention_edge_ids, dtype=tf.int64
+            hc_attention_ids['forward_edge_ids'], dtype=tf.int64
         )
         hc_attention_node_ids_tf = tf.constant(
-            hc_attention_node_ids, dtype=tf.int64
+            hc_attention_ids['forward_node_ids'], dtype=tf.int64
+        )
+        hc_attention_reverse_edge_ids_tf = tf.constant(
+            hc_attention_ids['reverse_edge_ids'], dtype=tf.int64
+        )
+        hc_attention_reverse_node_ids_tf = tf.constant(
+            hc_attention_ids['reverse_node_ids'], dtype=tf.int64
         )
         hc_specificity_prior_tf = tf.constant(
             hc_specificity_prior, dtype=tf.float32
         )
         pd_attention_edge_ids_tf = tf.constant(
-            pd_attention_edge_ids, dtype=tf.int64
+            pd_attention_ids['forward_edge_ids'], dtype=tf.int64
         )
         pd_attention_node_ids_tf = tf.constant(
-            pd_attention_node_ids, dtype=tf.int64
+            pd_attention_ids['forward_node_ids'], dtype=tf.int64
+        )
+        pd_attention_reverse_edge_ids_tf = tf.constant(
+            pd_attention_ids['reverse_edge_ids'], dtype=tf.int64
+        )
+        pd_attention_reverse_node_ids_tf = tf.constant(
+            pd_attention_ids['reverse_node_ids'], dtype=tf.int64
         )
         pd_specificity_prior_tf = tf.constant(
             pd_specificity_prior, dtype=tf.float32
@@ -717,6 +740,8 @@ class HDCTI(herbRecommender):
                         compound_embeddings,
                         hc_attention_edge_ids_tf,
                         hc_attention_node_ids_tf,
+                        hc_attention_reverse_edge_ids_tf,
+                        hc_attention_reverse_node_ids_tf,
                         self.num_herbs,
                         self.num_compounds,
                         hc_specificity_prior_tf,
@@ -742,6 +767,8 @@ class HDCTI(herbRecommender):
                         protein_embeddings,
                         pd_attention_edge_ids_tf,
                         pd_attention_node_ids_tf,
+                        pd_attention_reverse_edge_ids_tf,
+                        pd_attention_reverse_node_ids_tf,
                         self.num_diseases,
                         self.num_proteins,
                         pd_specificity_prior_tf,
