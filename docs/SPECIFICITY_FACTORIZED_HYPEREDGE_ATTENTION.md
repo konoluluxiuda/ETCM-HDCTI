@@ -185,10 +185,41 @@ Running time: 166.830888 s
 跨数据集方向：通过（3/4 提高，1/4 轻微下降）
 可学习性：通过
 可扩展性：未通过
-SP-FBHA 主模型路线：No-Go
+SP-FBHA 效率优先路线：No-Go
 ```
 
-按照预注册规则，不进入标准随机折或完整五折，不搜索 temperature、prior scale、H-C-only/P-D-only 或低覆盖近似。代码、配置和 checkpoint 元数据保留为准确性阳性但效率不合格的探索性结果，不能作为最终主模型证据。
+按照原预注册规则，SP-FBHA 未通过“运行时间不超过基线 2 倍”的效率门槛。该结论保持不变，不能将本次复核描述为原 Gate 已通过，也不能据此声称模型兼具高效性或可扩展性。
+
+### 8.2 事后协议修订：准确率优先分支
+
+2026-07-17 对研究目标作如下显式修订：`2.22x` 是效率代价，不等同于模型无效。ETCM 单折绝对运行时间约为 `166.83 s`，四库均未出现 OOM、非有限 loss 或稀疏算子错误，同时 compound cold-start 的四库 macro validation AUPR 提高 `0.017808`。因此保留 SP-FBHA 作为 **accuracy-oriented** 候选继续验证。
+
+该修订遵守以下边界：
+
+1. 不回溯修改或宣称原效率 Gate 已通过；
+2. 冻结 `temperature=1.0`、`prior.scale=0.1`、H-C/P-D 双侧启用和现有实现，不根据已见结果继续调参；
+3. 运行时间、峰值显存和相对倍率改为必须报告的代价，不再作为准确率优先分支的硬淘汰条件；
+4. OOM、NaN、非有限 loss 和稀疏算子错误仍是硬安全门槛；
+5. 先在四库标准 Strict `pair_stratified` fold 1 上进行 validation-only 配对复核，候选与冻结 Hctx-P 复用相同 manifest、seed、早停和 `attention.max.nodes=2000`；
+6. 标准随机折复核仍要求 macro validation AUPR 增量不小于 `+0.002`、至少 3/4 数据集不下降、任一数据集下降不超过 `0.005`；通过后才进入完整五折。
+
+配对配置的运行顺序为每个数据集先基线、后候选，以确保首次生成的 split manifest 被候选复用：
+
+```bash
+./run_hdcti.sh configs/HDCTI_tcmsuite_pair_stratified_herb_only_pilot.conf
+./run_hdcti.sh configs/HDCTI_tcmsuite_pair_stratified_sp_fbha_pilot.conf
+
+./run_hdcti.sh configs/HDCTI_tcmsp_pair_stratified_herb_only_pilot.conf
+./run_hdcti.sh configs/HDCTI_tcmsp_pair_stratified_sp_fbha_pilot.conf
+
+./run_hdcti.sh configs/HDCTI_symmap_pair_stratified_herb_only_pilot.conf
+./run_hdcti.sh configs/HDCTI_symmap_pair_stratified_sp_fbha_pilot.conf
+
+./run_hdcti.sh configs/HDCTI_etcm_mention10_pair_stratified_herb_only_pilot.conf
+./run_hdcti.sh configs/HDCTI_etcm_mention10_pair_stratified_sp_fbha_pilot.conf
+```
+
+这些配置均设置 `evaluation.outer.test=False`。该阶段只用于结构选择，不能把内层验证结果当作最终测试结果。
 
 ## 9. 研究边界
 
