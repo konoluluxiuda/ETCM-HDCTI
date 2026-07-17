@@ -166,6 +166,30 @@ attention.max.nodes=2000
 
 复核时 validation AUPR 仍需不低于 `0.856716`（冻结 Hctx-P `0.861716` 减去最大允许下降 `0.005`），运行时间需不超过 `150.32 s`。若仍超过，SP-FBHA 按预注册效率条件停止；不通过降低 P-D 覆盖、修改 temperature 或关闭单侧来规避门槛。
 
+### 8.1 等价实现效率复核
+
+预排序版本使用完全相同的 ETCM 配置得到：
+
+```text
+Best epoch: 14
+Validation AUPR: 0.870811
+Running time: 166.830888 s
+```
+
+相对冻结 Hctx-P，validation AUPR 仍提高 `0.009095`，高于准确性下限；相对优化前 SP-FBHA 只变化 `-0.000785`。但运行时间仍为 Hctx-P 的约 `2.22x`，高于 `150.32 s` 上限，且未较优化前的 `161.77 s` 改善。这说明主要成本来自两百万级 P-D incidence 上每个训练步骤的可微分 segment softmax 与稀疏值梯度，而不是动态 SparseReorder。
+
+最终判定为：
+
+```text
+准确性：通过
+跨数据集方向：通过（3/4 提高，1/4 轻微下降）
+可学习性：通过
+可扩展性：未通过
+SP-FBHA 主模型路线：No-Go
+```
+
+按照预注册规则，不进入标准随机折或完整五折，不搜索 temperature、prior scale、H-C-only/P-D-only 或低覆盖近似。代码、配置和 checkpoint 元数据保留为准确性阳性但效率不合格的探索性结果，不能作为最终主模型证据。
+
 ## 9. 研究边界
 
 SP-FBHA 是当前仓库中的候选实现名称，不据此声称文献首创。进入论文主模型前仍需完成针对 hypergraph attention、incidence attention 和 degree/specificity prior 的近邻工作核验，并明确与已有 HyperGAT/HNHN/AllSet 类方法的结构差异。
