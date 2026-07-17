@@ -29,6 +29,7 @@ from util.model_components import (
     resolve_context_mask_training,
     resolve_counterfactual_context,
     resolve_early_stopping,
+    resolve_hyperedge_attention,
     resolve_herb_context_attention,
     resolve_pair_decoder,
     resolve_support_router,
@@ -39,6 +40,7 @@ from util.support_router import (
     monotonic_context_gate,
     softplus,
 )
+from util.hyperedge_attention import hyperedge_specificity_prior
 from sklearn.metrics import average_precision_score, roc_auc_score
 # tf.compat.v1.set_random_seed(4321)
 from util.io import FileIO
@@ -191,6 +193,14 @@ class HDCTI(herbRecommender):
             if degree:
                 self.compound_herb_indices[compound_index, :degree] = herb_indices
                 self.compound_herb_mask[compound_index, :degree] = 1.0
+        hc_attention_edge_ids = np.asarray(hc_coo.row, dtype=np.int32)
+        hc_attention_node_ids = np.asarray(hc_coo.col, dtype=np.int32)
+        hc_edge_degrees = np.bincount(
+            hc_attention_edge_ids, minlength=self.num_herbs
+        ).astype(np.float32)
+        hc_specificity_prior = hyperedge_specificity_prior(
+            hc_edge_degrees, self.num_compounds
+        )
         
         # 获取 pd 的矩阵
         P_d = pd
@@ -216,6 +226,31 @@ class HDCTI(herbRecommender):
         P_n = tf.sparse_reorder(
             tf.SparseTensor(A_pdn, pd_node.data.astype(np.float32), pd_node.shape)
         )
+        pd_coo = pd.tocoo()
+        pd_attention_edge_ids = np.asarray(pd_coo.col, dtype=np.int32)
+        pd_attention_node_ids = np.asarray(pd_coo.row, dtype=np.int32)
+        pd_edge_degrees = np.bincount(
+            pd_attention_edge_ids, minlength=self.num_diseases
+        ).astype(np.float32)
+        pd_specificity_prior = hyperedge_specificity_prior(
+            pd_edge_degrees, self.num_proteins
+        )
+        self.hyperedge_attention_structure = {
+            'hc': {
+                'nodes': int(self.num_compounds),
+                'hyperedges': int(self.num_herbs),
+                'incidences': int(hc_attention_edge_ids.size),
+                'specificity_prior_min': float(np.min(hc_specificity_prior)),
+                'specificity_prior_max': float(np.max(hc_specificity_prior)),
+            },
+            'pd': {
+                'nodes': int(self.num_proteins),
+                'hyperedges': int(self.num_diseases),
+                'incidences': int(pd_attention_edge_ids.size),
+                'specificity_prior_min': float(np.min(pd_specificity_prior)),
+                'specificity_prior_max': float(np.max(pd_specificity_prior)),
+            },
+        }
 
 
 
@@ -234,6 +269,7 @@ class HDCTI(herbRecommender):
         self.counterfactual_context = resolve_counterfactual_context(self.config)
         self.context_mask_training = resolve_context_mask_training(self.config)
         self.support_router = resolve_support_router(self.config)
+        self.hyperedge_attention = resolve_hyperedge_attention(self.config)
         if self.support_router['enabled']:
             if getattr(self.data, 'protocol', 'legacy') != 'strict':
                 raise ValueError(
@@ -256,6 +292,17 @@ class HDCTI(herbRecommender):
                 raise ValueError(
                     'Support routing requires deterministic pseudo-cold graph masking.'
                 )
+        if self.hyperedge_attention['enabled']:
+            print(
+                'Hyperedge attention: mode=%s H-C=%s P-D=%s '
+                'temperature=%g prior_scale=%g.' % (
+                    self.hyperedge_attention['mode'],
+                    'on' if self.hyperedge_attention['hc_enabled'] else 'off',
+                    'on' if self.hyperedge_attention['pd_enabled'] else 'off',
+                    self.hyperedge_attention['temperature'],
+                    self.hyperedge_attention['prior_scale'],
+                )
+            )
 
         self.compound_cp_support_degrees = np.zeros(
             self.num_compounds, dtype=np.float32
@@ -444,6 +491,24 @@ class HDCTI(herbRecommender):
                     initializer([self.emb_size, head_dim]), name='protein_k_%d_%d' % (i + 1, h))
                 self.attention_weights['protein_v_%d_%d' % (i + 1, h)] = tf.Variable(
                     initializer([self.emb_size, head_dim]), name='protein_v_%d_%d' % (i + 1, h))
+            if self.hyperedge_attention['hc_enabled']:
+                self.weights['hc_hyper_node_%d' % (i + 1)] = tf.Variable(
+                    tf.zeros([self.emb_size]),
+                    name='hc_hyper_node_%d' % (i + 1),
+                )
+                self.weights['hc_hyper_edge_%d' % (i + 1)] = tf.Variable(
+                    tf.zeros([self.emb_size]),
+                    name='hc_hyper_edge_%d' % (i + 1),
+                )
+            if self.hyperedge_attention['pd_enabled']:
+                self.weights['pd_hyper_node_%d' % (i + 1)] = tf.Variable(
+                    tf.zeros([self.emb_size]),
+                    name='pd_hyper_node_%d' % (i + 1),
+                )
+                self.weights['pd_hyper_edge_%d' % (i + 1)] = tf.Variable(
+                    tf.zeros([self.emb_size]),
+                    name='pd_hyper_edge_%d' % (i + 1),
+                )
 
         for i in range(2):
             self.weights['gating%d' % (i + 1)] = tf.Variable(initializer([self.emb_size, self.emb_size]),
@@ -553,6 +618,88 @@ class HDCTI(herbRecommender):
 
             return tf.multiply(em,tf.nn.sigmoid(tf.matmul(em,self.weights['gating%d' % channel])+self.weights['gating_bias%d' %channel]))
 
+        def unsorted_segment_softmax(logits, segment_ids, segment_count):
+            maxima = tf.math.unsorted_segment_max(
+                logits, segment_ids, segment_count
+            )
+            shifted = logits - tf.gather(maxima, segment_ids)
+            exponentials = tf.exp(shifted)
+            denominators = tf.math.unsorted_segment_sum(
+                exponentials, segment_ids, segment_count
+            )
+            return exponentials / (
+                tf.gather(denominators, segment_ids) + 1e-12
+            )
+
+        def factorized_hyperedge_propagation(
+                node_embeddings,
+                edge_ids,
+                node_ids,
+                edge_count,
+                node_count,
+                specificity_prior,
+                node_score_vector,
+                edge_score_vector,
+                name):
+            temperature = float(self.hyperedge_attention['temperature'])
+            prior_scale = float(self.hyperedge_attention['prior_scale'])
+            node_logits = tf.reduce_sum(
+                node_embeddings * node_score_vector, axis=1
+            )
+            node_to_edge_values = unsorted_segment_softmax(
+                tf.gather(node_logits, node_ids) / temperature,
+                edge_ids,
+                edge_count,
+            )
+            node_to_edge = tf.sparse_reorder(tf.SparseTensor(
+                tf.stack([edge_ids, node_ids], axis=1),
+                node_to_edge_values,
+                [edge_count, node_count],
+            ))
+            edge_embeddings = tf.sparse_tensor_dense_matmul(
+                node_to_edge,
+                node_embeddings,
+                name=name + '_node_to_edge',
+            )
+            edge_logits = tf.reduce_sum(
+                edge_embeddings * edge_score_vector, axis=1
+            ) + prior_scale * specificity_prior
+            edge_to_node_values = unsorted_segment_softmax(
+                tf.gather(edge_logits, edge_ids) / temperature,
+                node_ids,
+                node_count,
+            )
+            edge_to_node = tf.sparse_reorder(tf.SparseTensor(
+                tf.stack([node_ids, edge_ids], axis=1),
+                edge_to_node_values,
+                [node_count, edge_count],
+            ))
+            propagated_nodes = tf.sparse_tensor_dense_matmul(
+                edge_to_node,
+                edge_embeddings,
+                name=name + '_edge_to_node',
+            )
+            return edge_embeddings, propagated_nodes
+
+        hc_attention_edge_ids_tf = tf.constant(
+            hc_attention_edge_ids, dtype=tf.int64
+        )
+        hc_attention_node_ids_tf = tf.constant(
+            hc_attention_node_ids, dtype=tf.int64
+        )
+        hc_specificity_prior_tf = tf.constant(
+            hc_specificity_prior, dtype=tf.float32
+        )
+        pd_attention_edge_ids_tf = tf.constant(
+            pd_attention_edge_ids, dtype=tf.int64
+        )
+        pd_attention_node_ids_tf = tf.constant(
+            pd_attention_node_ids, dtype=tf.int64
+        )
+        pd_specificity_prior_tf = tf.constant(
+            pd_specificity_prior, dtype=tf.float32
+        )
+
         compound_embeddings = self_gating(self.compound_embeddings, 1)
         protein_embeddings = self_gating(self.protein_embeddings, 2)
 
@@ -564,26 +711,56 @@ class HDCTI(herbRecommender):
         all_pd_embeddings = []
 
         for i in range(self.n_layer):
-            new_hc_edge = tf.sparse_tensor_dense_matmul(
-                H_e,
-                compound_embeddings,
-                name='hc_node_to_edge_layer_%d' % (i + 1),
-            )
-            new_compound_embeddings = tf.sparse_tensor_dense_matmul(
-                H_n,
-                new_hc_edge,
-                name='hc_edge_to_node_layer_%d' % (i + 1),
-            )
-            new_pd_edge = tf.sparse_tensor_dense_matmul(
-                P_e,
-                protein_embeddings,
-                name='pd_node_to_edge_layer_%d' % (i + 1),
-            )
-            new_protein_embeddings = tf.sparse_tensor_dense_matmul(
-                P_n,
-                new_pd_edge,
-                name='pd_edge_to_node_layer_%d' % (i + 1),
-            )
+            if self.hyperedge_attention['hc_enabled']:
+                new_hc_edge, new_compound_embeddings = (
+                    factorized_hyperedge_propagation(
+                        compound_embeddings,
+                        hc_attention_edge_ids_tf,
+                        hc_attention_node_ids_tf,
+                        self.num_herbs,
+                        self.num_compounds,
+                        hc_specificity_prior_tf,
+                        self.weights['hc_hyper_node_%d' % (i + 1)],
+                        self.weights['hc_hyper_edge_%d' % (i + 1)],
+                        'hc_factorized_attention_layer_%d' % (i + 1),
+                    )
+                )
+            else:
+                new_hc_edge = tf.sparse_tensor_dense_matmul(
+                    H_e,
+                    compound_embeddings,
+                    name='hc_node_to_edge_layer_%d' % (i + 1),
+                )
+                new_compound_embeddings = tf.sparse_tensor_dense_matmul(
+                    H_n,
+                    new_hc_edge,
+                    name='hc_edge_to_node_layer_%d' % (i + 1),
+                )
+            if self.hyperedge_attention['pd_enabled']:
+                new_pd_edge, new_protein_embeddings = (
+                    factorized_hyperedge_propagation(
+                        protein_embeddings,
+                        pd_attention_edge_ids_tf,
+                        pd_attention_node_ids_tf,
+                        self.num_diseases,
+                        self.num_proteins,
+                        pd_specificity_prior_tf,
+                        self.weights['pd_hyper_node_%d' % (i + 1)],
+                        self.weights['pd_hyper_edge_%d' % (i + 1)],
+                        'pd_factorized_attention_layer_%d' % (i + 1),
+                    )
+                )
+            else:
+                new_pd_edge = tf.sparse_tensor_dense_matmul(
+                    P_e,
+                    protein_embeddings,
+                    name='pd_node_to_edge_layer_%d' % (i + 1),
+                )
+                new_protein_embeddings = tf.sparse_tensor_dense_matmul(
+                    P_n,
+                    new_pd_edge,
+                    name='pd_edge_to_node_layer_%d' % (i + 1),
+                )
             new_compound_embeddings = new_compound_embeddings * pr_compound_embeddings
             new_protein_embeddings = new_protein_embeddings * pr_protein_embeddings
         
@@ -1250,6 +1427,62 @@ class HDCTI(herbRecommender):
         self.i_context = state['protein_context']
         self.herb_edge = state['herb_edge']
         self.weight = state['weights']
+        self.hyperedge_attention_summary = None
+        if self.hyperedge_attention['enabled']:
+            parameter_summary = {}
+            for side in ('hc', 'pd'):
+                if not self.hyperedge_attention[side + '_enabled']:
+                    continue
+                parameter_summary[side] = []
+                for layer in range(1, self.n_layer + 1):
+                    node_weight = self.weight[
+                        '%s_hyper_node_%d' % (side, layer)
+                    ]
+                    edge_weight = self.weight[
+                        '%s_hyper_edge_%d' % (side, layer)
+                    ]
+                    parameter_summary[side].append({
+                        'layer': layer,
+                        'node_score_mean_abs': float(
+                            np.mean(np.abs(node_weight))
+                        ),
+                        'edge_score_mean_abs': float(
+                            np.mean(np.abs(edge_weight))
+                        ),
+                    })
+            self.hyperedge_attention_summary = {
+                'mode': self.hyperedge_attention['mode'],
+                'hc_enabled': self.hyperedge_attention['hc_enabled'],
+                'pd_enabled': self.hyperedge_attention['pd_enabled'],
+                'temperature': self.hyperedge_attention['temperature'],
+                'prior_scale': self.hyperedge_attention['prior_scale'],
+                'structure': self.hyperedge_attention_structure,
+                'parameters': parameter_summary,
+            }
+            print(
+                'Hyperedge attention learned mean abs: %s' % ', '.join(
+                    '%s-L%d node=%.6f edge=%.6f' % (
+                        side.upper(),
+                        row['layer'],
+                        row['node_score_mean_abs'],
+                        row['edge_score_mean_abs'],
+                    )
+                    for side, rows in parameter_summary.items()
+                    for row in rows
+                )
+            )
+            attention_path = os.path.join(
+                model_dir, 'hyperedge_attention.json'
+            )
+            with open(attention_path, 'w', encoding='utf-8') as handle:
+                json.dump(
+                    self.hyperedge_attention_summary,
+                    handle,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                handle.write('\n')
+            print('Hyperedge attention metadata: %s' % attention_path)
         self.support_router_summary = None
         if self.support_router['enabled']:
             support_slope = softplus(

@@ -153,6 +153,47 @@ def resolve_support_router(config):
     }
 
 
+def resolve_hyperedge_attention(config):
+    enabled = _config_bool(config, 'hyperedge.attention', False)
+    mode = (
+        str(config['hyperedge.attention.mode']).strip().lower()
+        if config.contains('hyperedge.attention.mode')
+        else 'factorized_specificity'
+    )
+    hc_enabled = _config_bool(config, 'hyperedge.attention.hc', True)
+    pd_enabled = _config_bool(config, 'hyperedge.attention.pd', True)
+    temperature = (
+        float(config['hyperedge.attention.temperature'])
+        if config.contains('hyperedge.attention.temperature') else 1.0
+    )
+    prior_scale = (
+        float(config['hyperedge.attention.prior.scale'])
+        if config.contains('hyperedge.attention.prior.scale') else 0.1
+    )
+    if mode != 'factorized_specificity':
+        raise ValueError(
+            'hyperedge.attention.mode must be factorized_specificity.'
+        )
+    if enabled and not (hc_enabled or pd_enabled):
+        raise ValueError(
+            'At least one of hyperedge.attention.hc/pd must be enabled.'
+        )
+    if temperature <= 0:
+        raise ValueError('hyperedge.attention.temperature must be positive.')
+    if prior_scale < 0:
+        raise ValueError(
+            'hyperedge.attention.prior.scale cannot be negative.'
+        )
+    return {
+        'enabled': enabled,
+        'mode': mode,
+        'hc_enabled': enabled and hc_enabled,
+        'pd_enabled': enabled and pd_enabled,
+        'temperature': temperature,
+        'prior_scale': prior_scale,
+    }
+
+
 def counterfactual_margin_values(
         factual_context_logits,
         counterfactual_context_logits,
