@@ -1,4 +1,5 @@
 #coding:utf8
+import json
 import os
 from util.gpu import configure_cuda_environment
 configure_cuda_environment()
@@ -30,7 +31,13 @@ from util.model_components import (
     resolve_early_stopping,
     resolve_herb_context_attention,
     resolve_pair_decoder,
+    resolve_support_router,
     target_conditioned_herb_contexts,
+)
+from util.support_router import (
+    inverse_softplus,
+    monotonic_context_gate,
+    softplus,
 )
 from sklearn.metrics import average_precision_score, roc_auc_score
 # tf.compat.v1.set_random_seed(4321)
@@ -226,6 +233,41 @@ class HDCTI(herbRecommender):
         self.herb_context_attention = resolve_herb_context_attention(self.config)
         self.counterfactual_context = resolve_counterfactual_context(self.config)
         self.context_mask_training = resolve_context_mask_training(self.config)
+        self.support_router = resolve_support_router(self.config)
+        if self.support_router['enabled']:
+            if getattr(self.data, 'protocol', 'legacy') != 'strict':
+                raise ValueError(
+                    'Support routing requires experiment.protocol=strict.'
+                )
+            if self.herb_context_attention['mode'] != 'static':
+                raise ValueError('Support routing requires static Hctx-P.')
+            if self.context_terms != {
+                    'compound_disease': False,
+                    'herb_protein': True,
+                    'herb_disease': False}:
+                raise ValueError(
+                    'Support routing requires HerbOnly context terms.'
+                )
+            if self.context_mask_training['enabled']:
+                raise ValueError(
+                    'Support routing cannot be combined with context-masked training.'
+                )
+            if self.data.pseudo_cold_info is None:
+                raise ValueError(
+                    'Support routing requires deterministic pseudo-cold graph masking.'
+                )
+
+        self.compound_cp_support_degrees = np.zeros(
+            self.num_compounds, dtype=np.float32
+        )
+        for compound_id, _, label in self.data.cpassociation:
+            if float(label) > 0:
+                self.compound_cp_support_degrees[
+                    self.data.compound[str(compound_id)]
+                ] += 1.0
+        self.compound_context_available = (
+            np.sum(self.compound_herb_mask, axis=1) > 0
+        ).astype(np.float32)
         if (
             self.herb_context_attention['mode'] in TARGET_HERB_ATTENTION_MODES
             and not self.context_terms['herb_protein']
@@ -334,6 +376,16 @@ class HDCTI(herbRecommender):
                 self.herb_context_attention['mode'], self.max_compound_herbs
             )
         )
+        if self.support_router['enabled']:
+            print(
+                'Support router: mode=%s pseudo_cold_ratio=%.4f seed=%d '
+                'initial_slope=%g.' % (
+                    self.support_router['mode'],
+                    self.support_router['pseudo_cold_ratio'],
+                    self.support_router['seed'],
+                    self.support_router['initial_slope'],
+                )
+            )
         print('Pair decoder: %s' % self.pair_decoder['type'])
         attention_size = 64
         self.compound_attention_weights = []
@@ -411,6 +463,13 @@ class HDCTI(herbRecommender):
             )
             self.weights['context_herb_disease'] = tf.Variable(
                 tf.zeros([self.emb_size]), name='context_herb_disease'
+            )
+        if self.support_router['enabled']:
+            self.weights['support_router_raw_slope'] = tf.Variable(
+                np.asarray([
+                    inverse_softplus(self.support_router['initial_slope'])
+                ], dtype=np.float32),
+                name='support_router_raw_slope',
             )
         if self.herb_context_attention['mode'] in TARGET_HERB_ATTENTION_MODES:
             self.weights['target_herb_projection'] = tf.Variable(
@@ -622,6 +681,26 @@ class HDCTI(herbRecommender):
         self.v_embedding = tf.nn.embedding_lookup(self.final_iembedding, self.v_idx)
         self.u_context_embedding = tf.nn.embedding_lookup(self.final_compound_context, self.u_idx)
         self.v_context_embedding = tf.nn.embedding_lookup(self.final_protein_context, self.v_idx)
+        self.support_context_gate = None
+        if self.support_router['enabled']:
+            pair_support_degrees = tf.gather(
+                tf.constant(
+                    self.compound_cp_support_degrees, dtype=tf.float32
+                ),
+                self.u_idx,
+            )
+            pair_context_available = tf.gather(
+                tf.constant(
+                    self.compound_context_available, dtype=tf.float32
+                ),
+                self.u_idx,
+            )
+            support_slope = tf.nn.softplus(
+                self.weights['support_router_raw_slope'][0]
+            )
+            self.support_context_gate = pair_context_available * tf.exp(
+                -support_slope * tf.log1p(pair_support_degrees)
+            )
         self.target_herb_attention_weights = None
         self.target_herb_context_embedding = None
         if self.herb_context_attention['mode'] in TARGET_HERB_ATTENTION_MODES:
@@ -744,10 +823,13 @@ class HDCTI(herbRecommender):
                 * self.weights['context_compound_disease'], axis=1
             )
         if self.context_terms['herb_protein']:
-            logits += tf.reduce_sum(
+            herb_protein_logits = tf.reduce_sum(
                 self.u_context_embedding * protein_embedding
                 * self.weights['context_herb_protein'], axis=1
             )
+            if self.support_router['enabled']:
+                herb_protein_logits *= self.support_context_gate
+            logits += herb_protein_logits
             if self.herb_context_attention['mode'] == 'target_residual_attention':
                 context_delta = (
                     self.target_herb_context_embedding - self.u_context_embedding
@@ -762,6 +844,20 @@ class HDCTI(herbRecommender):
                 * self.weights['context_herb_disease'], axis=1
             )
         return logits
+
+    def supportContextGateValues(self, state, compound_indices):
+        if not self.support_router['enabled']:
+            return None
+        compound_indices = np.asarray(compound_indices, dtype=np.int64)
+        raw_slope = np.asarray(
+            state['weights']['support_router_raw_slope']
+        ).reshape(-1)
+        slope = softplus(raw_slope[0])
+        return monotonic_context_gate(
+            self.compound_cp_support_degrees[compound_indices],
+            self.compound_context_available[compound_indices],
+            slope,
+        )
 
     def buildContextMaskedTrainingLoss(self):
         if not self.context_mask_training['enabled']:
@@ -813,6 +909,9 @@ class HDCTI(herbRecommender):
             counterfactual_context_embedding * self.v_embedding
             * self.weights['context_herb_protein'], axis=1
         )
+        if self.support_router['enabled']:
+            factual_context_logits *= self.support_context_gate
+            counterfactual_context_logits *= self.support_context_gate
         positive_mask = tf.cast(
             self.neg_disease_embedding > 0.5, tf.float32
         )
@@ -933,6 +1032,9 @@ class HDCTI(herbRecommender):
                 pair_compound_contexts=pair_compound_contexts,
                 residual_compound_contexts=residual_compound_contexts,
                 target_residual_weight=weights.get('context_target_herb_residual'),
+                herb_protein_scale=self.supportContextGateValues(
+                    state, compound_indices
+                ),
             )
         scores = 1.0 / (1.0 + np.exp(-np.clip(logits, -50, 50)))
         if metric == 'aupr':
@@ -1148,6 +1250,62 @@ class HDCTI(herbRecommender):
         self.i_context = state['protein_context']
         self.herb_edge = state['herb_edge']
         self.weight = state['weights']
+        self.support_router_summary = None
+        if self.support_router['enabled']:
+            support_slope = softplus(
+                np.asarray(
+                    self.weight['support_router_raw_slope']
+                ).reshape(-1)[0]
+            )
+            all_support_gates = self.supportContextGateValues(
+                state, np.arange(self.num_compounds, dtype=np.int64)
+            )
+            seen_mask = self.compound_cp_support_degrees > 0
+            zero_mask = (
+                (self.compound_cp_support_degrees == 0)
+                & (self.compound_context_available > 0)
+            )
+            self.support_router_summary = {
+                'mode': self.support_router['mode'],
+                'learned_slope': float(support_slope),
+                'pseudo_cold': self.data.pseudo_cold_info,
+                'zero_support_compounds': int(np.sum(zero_mask)),
+                'zero_support_gate_mean': (
+                    float(np.mean(all_support_gates[zero_mask]))
+                    if np.any(zero_mask) else None
+                ),
+                'seen_compounds': int(np.sum(seen_mask)),
+                'seen_gate_mean': (
+                    float(np.mean(all_support_gates[seen_mask]))
+                    if np.any(seen_mask) else None
+                ),
+                'gate_min': float(np.min(all_support_gates)),
+                'gate_max': float(np.max(all_support_gates)),
+            }
+            print(
+                'Support router learned slope: %.6f; zero-support gate: %s; '
+                'seen gate mean: %s.' % (
+                    self.support_router_summary['learned_slope'],
+                    '%.6f' % self.support_router_summary[
+                        'zero_support_gate_mean'
+                    ] if self.support_router_summary[
+                        'zero_support_gate_mean'
+                    ] is not None else 'n/a',
+                    '%.6f' % self.support_router_summary['seen_gate_mean']
+                    if self.support_router_summary['seen_gate_mean'] is not None
+                    else 'n/a',
+                )
+            )
+            router_path = os.path.join(model_dir, 'support_router.json')
+            with open(router_path, 'w', encoding='utf-8') as handle:
+                json.dump(
+                    self.support_router_summary,
+                    handle,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                handle.write('\n')
+            print('Support router metadata: %s' % router_path)
         if self.use_context_interaction:
             context_weight_values = {
                 'compound_disease': np.mean(np.abs(self.weight['context_compound_disease'])),
@@ -1309,6 +1467,9 @@ class HDCTI(herbRecommender):
             pair_compound_contexts=pair_compound_contexts,
             residual_compound_contexts=residual_compound_contexts,
             target_residual_weight=self.weight.get('context_target_herb_residual'),
+            herb_protein_scale=self.supportContextGateValues(
+                state, compound_indices
+            ),
         )
 
     def predictForRanking(self):
@@ -1343,9 +1504,20 @@ class HDCTI(herbRecommender):
                 self.i_context.transpose()
             )
         if self.context_terms['herb_protein']:
-            scores += (self.u_context * self.weight['context_herb_protein']).dot(
+            herb_protein_scores = (
+                self.u_context * self.weight['context_herb_protein']
+            ).dot(
                 self.i.transpose()
             )
+            if self.support_router['enabled']:
+                support_gates = self.supportContextGateValues(
+                    {
+                        'weights': self.weight,
+                    },
+                    np.arange(self.num_compounds, dtype=np.int64),
+                )
+                herb_protein_scores *= support_gates[:, None]
+            scores += herb_protein_scores
         if self.context_terms['herb_disease']:
             scores += (self.u_context * self.weight['context_herb_disease']).dot(
                 self.i_context.transpose()

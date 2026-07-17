@@ -118,6 +118,41 @@ def resolve_context_mask_training(config):
     }
 
 
+def resolve_support_router(config):
+    enabled = _config_bool(config, 'support.router', False)
+    mode = (
+        str(config['support.router.mode']).strip().lower()
+        if config.contains('support.router.mode') else 'monotonic_residual'
+    )
+    pseudo_cold_ratio = (
+        float(config['support.router.pseudo.cold.ratio'])
+        if config.contains('support.router.pseudo.cold.ratio') else 0.1
+    )
+    seed = (
+        int(config['support.router.seed'])
+        if config.contains('support.router.seed') else 62026
+    )
+    initial_slope = (
+        float(config['support.router.initial.slope'])
+        if config.contains('support.router.initial.slope') else 1.0
+    )
+    if mode != 'monotonic_residual':
+        raise ValueError('support.router.mode must be monotonic_residual.')
+    if not 0.0 < pseudo_cold_ratio < 1.0:
+        raise ValueError(
+            'support.router.pseudo.cold.ratio must be between 0 and 1.'
+        )
+    if initial_slope <= 0:
+        raise ValueError('support.router.initial.slope must be positive.')
+    return {
+        'enabled': enabled,
+        'mode': mode,
+        'pseudo_cold_ratio': pseudo_cold_ratio,
+        'seed': seed,
+        'initial_slope': initial_slope,
+    }
+
+
 def counterfactual_margin_values(
         factual_context_logits,
         counterfactual_context_logits,
@@ -297,7 +332,8 @@ def context_interaction_pair_scores(
         decoder_weights=None,
         pair_compound_contexts=None,
         residual_compound_contexts=None,
-        target_residual_weight=None):
+        target_residual_weight=None,
+        herb_protein_scale=None):
     compound_indices = np.asarray(compound_indices, dtype=np.int64)
     protein_indices = np.asarray(protein_indices, dtype=np.int64)
     if compound_indices.shape != protein_indices.shape:
@@ -327,7 +363,19 @@ def context_interaction_pair_scores(
     if enabled_terms.get('compound_disease', False):
         scores += np.sum(compounds * disease_contexts * compound_disease_weight, axis=1)
     if enabled_terms.get('herb_protein', False):
-        scores += np.sum(herb_contexts * proteins * herb_protein_weight, axis=1)
+        herb_protein_scores = np.sum(
+            herb_contexts * proteins * herb_protein_weight, axis=1
+        )
+        if herb_protein_scale is not None:
+            herb_protein_scale = np.asarray(
+                herb_protein_scale, dtype=np.float64
+            ).reshape(-1)
+            if herb_protein_scale.shape != herb_protein_scores.shape:
+                raise ValueError(
+                    'Herb-protein scales must match the number of pairs.'
+                )
+            herb_protein_scores *= herb_protein_scale
+        scores += herb_protein_scores
         if residual_compound_contexts is not None:
             residual_contexts = np.asarray(residual_compound_contexts)
             if residual_contexts.shape != compounds.shape:

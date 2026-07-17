@@ -5,6 +5,9 @@ from collections import defaultdict
 import pandas as pd
 import os
 
+from util.model_components import resolve_support_router
+from util.support_router import select_pseudo_cold_compounds
+
 
 RELATION_FILE_CANDIDATES = {
     'H_C': ('H_C.txt', 'herb-compound.txt', 'HI.txt'),
@@ -51,6 +54,7 @@ class Rating(object):
     def __init__(self,config,trainingSet, testSet):
         self.config = config
         self.protocol = config['experiment.protocol'].strip().lower() if config.contains('experiment.protocol') else 'legacy'
+        self.support_router = resolve_support_router(config)
         self.evalSettings = OptionConf(self.config['evaluation.setup'])
         self.herb = {} #map herb names to id
         self.disease = {} #map disease names to id
@@ -131,6 +135,8 @@ class Rating(object):
         # HC=HC.values.tolist()
         self.hcassociation = HC.values.tolist()
         self.full_cpassociation = CP.values.tolist()
+        self.pseudo_cold_compounds = set()
+        self.pseudo_cold_info = None
         if self.protocol == 'strict':
             train_positive_pairs = []
             seen_train_positive_pairs = set()
@@ -147,12 +153,44 @@ class Rating(object):
             overlap = seen_train_positive_pairs & test_positive_pairs
             if overlap:
                 raise ValueError('Strict C-P graph contains %d test positive edges.' % len(overlap))
-            self.cpassociation = train_positive_pairs
+            if self.support_router['enabled']:
+                pseudo_info = select_pseudo_cold_compounds(
+                    train_positive_pairs,
+                    eligible_compounds={str(value) for value in HC[1].unique()},
+                    ratio=self.support_router['pseudo_cold_ratio'],
+                    seed=self.support_router['seed'],
+                )
+                self.pseudo_cold_info = pseudo_info
+                self.pseudo_cold_compounds = set(
+                    pseudo_info['selected_compounds']
+                )
+                self.cpassociation = [
+                    row for row in train_positive_pairs
+                    if str(row[0]) not in self.pseudo_cold_compounds
+                ]
+            else:
+                self.cpassociation = train_positive_pairs
             print(
                 'Strict C-P graph: %d training positive edges; %d test positives excluded; H-D disabled.' %
                 (len(self.cpassociation), len(test_positive_pairs))
             )
+            if self.pseudo_cold_info is not None:
+                print(
+                    'Pseudo-cold C-P masking: compounds=%d/%d edges=%d '
+                    'ratio=%.4f seed=%d hash=%s.' % (
+                        self.pseudo_cold_info['selected_count'],
+                        self.pseudo_cold_info['candidate_count'],
+                        self.pseudo_cold_info['excluded_positive_edges'],
+                        self.pseudo_cold_info['ratio_actual'],
+                        self.pseudo_cold_info['seed'],
+                        self.pseudo_cold_info['assignments_sha256'][:12],
+                    )
+                )
         else:
+            if self.support_router['enabled']:
+                raise ValueError(
+                    'Support routing requires experiment.protocol=strict.'
+                )
             self.cpassociation = self.full_cpassociation
         self.pdassociation = PD.values.tolist()
         self.hdassociation = HD.values.tolist()

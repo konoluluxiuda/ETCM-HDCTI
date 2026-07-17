@@ -402,6 +402,56 @@ class StrictProtocolTest(unittest.TestCase):
             self.assertEqual(len(data.full_cpassociation), 2)
             self.assertEqual(data.hdassociation, [])
 
+    def test_support_router_masks_all_graph_edges_for_selected_compounds(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            dataset_dir = Path(temporary_directory)
+            hc_rows = []
+            cp_rows = []
+            pd_rows = ['p0\td0', 'p1\td1']
+            training = []
+            for index in range(10):
+                compound = 'c%d' % index
+                protein = 'p%d' % (index % 2)
+                other = 'p%d' % ((index + 1) % 2)
+                hc_rows.append('h%d\t%s' % (index, compound))
+                cp_rows.append('%s\t%s' % (compound, protein))
+                training.extend([
+                    [compound, protein, 1.0],
+                    [compound, other, 0.0],
+                ])
+            (dataset_dir / 'H_C.txt').write_text(
+                '\n'.join(hc_rows) + '\n', encoding='utf-8'
+            )
+            (dataset_dir / 'C_P.txt').write_text(
+                '\n'.join(cp_rows) + '\n', encoding='utf-8'
+            )
+            (dataset_dir / 'P_D.txt').write_text(
+                '\n'.join(pd_rows) + '\n', encoding='utf-8'
+            )
+            datapath = dataset_dir / 'ONE_indices.txt'
+            datapath.write_text(
+                '\n'.join('%s\t%s\t1' % tuple(row.split('\t')) for row in cp_rows)
+                + '\n',
+                encoding='utf-8',
+            )
+            conf = DummyConf({
+                'datapath': str(datapath),
+                'evaluation.setup': '-cv 2',
+                'experiment.protocol': 'strict',
+                'support.router': 'True',
+                'support.router.pseudo.cold.ratio': '0.1',
+                'support.router.seed': '17',
+            })
+
+            data = Rating(conf, training, [])
+            selected = data.pseudo_cold_compounds
+            graph_compounds = {row[0] for row in data.cpassociation}
+
+            self.assertEqual(len(selected), 1)
+            self.assertFalse(selected & graph_compounds)
+            self.assertEqual(len(data.cpassociation), 9)
+            self.assertEqual(data.pseudo_cold_info['excluded_positive_edges'], 1)
+
     def test_bipartite_pagerank_keeps_entity_types_separate(self):
         adjacency = coo_matrix(
             (np.asarray([1.0]), (np.asarray([0]), np.asarray([0]))),
