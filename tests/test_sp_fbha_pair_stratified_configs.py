@@ -49,8 +49,8 @@ class PairStratifiedSpFbhaConfigTest(unittest.TestCase):
                 self.assertEqual(candidate['evaluation.fold.limit'], '1')
                 self.assertEqual(baseline['evaluation.outer.test'], 'False')
                 self.assertEqual(candidate['evaluation.outer.test'], 'False')
-                self.assertEqual(baseline['attention.max.nodes'], '2000')
-                self.assertEqual(candidate['attention.max.nodes'], '2000')
+                self.assertEqual(baseline['attention.max.nodes'], '0')
+                self.assertEqual(candidate['attention.max.nodes'], '0')
                 self.assertEqual(baseline['hyperedge.attention'], 'False')
 
                 settings = resolve_hyperedge_attention(candidate)
