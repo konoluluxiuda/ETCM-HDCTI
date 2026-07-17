@@ -277,6 +277,44 @@ Macro validation AUPR: 0.976035 -> 0.975522 (-0.000513)
 
 SP-FBHA 未满足 macro 增量不小于 `+0.002` 和至少 3/4 数据集不下降两项条件，因此不进入普通 `pair_stratified` 协议的完整五折，也不作为通用随机划分增强模块。四库 compound cold-start 在阈值 2000 口径下曾得到 macro `+0.017808`，说明它仍可保留为冷启动专用候选；但在将其写为最终冷启动模块前，需要在统一 `attention.max.nodes=0` 的 cold-start 配置下重新确认，不能把两种 attention 口径混合为同一证据。
 
+### 8.5 冷启动专用候选统一复核
+
+为验证 SP-FBHA 的收益是否真正来自 cold-start 场景，而不是阈值 2000 下不同数据集保留的局部稠密注意力，新增四库统一配置：
+
+```text
+split.strategy=compound_cold_start
+evaluation.fold.limit=1
+evaluation.outer.test=False
+attention.max.nodes=0
+```
+
+基线为静态 Hctx-P，候选只额外启用冻结的 SP-FBHA；两者复用原 compound cold-start manifest、seed、inner validation、早停和 Dot decoder。旧的 `attention.max.nodes=2000` 配置与结果保持不变，不被覆盖。
+
+运行命令：
+
+```bash
+./run_hdcti.sh configs/HDCTI_tcmsuite_cold_start_no_dense_herb_only_pilot.conf
+./run_hdcti.sh configs/HDCTI_tcmsuite_cold_start_no_dense_sp_fbha_pilot.conf
+
+./run_hdcti.sh configs/HDCTI_tcmsp_cold_start_no_dense_herb_only_pilot.conf
+./run_hdcti.sh configs/HDCTI_tcmsp_cold_start_no_dense_sp_fbha_pilot.conf
+
+./run_hdcti.sh configs/HDCTI_symmap_cold_start_no_dense_herb_only_pilot.conf
+./run_hdcti.sh configs/HDCTI_symmap_cold_start_no_dense_sp_fbha_pilot.conf
+
+./run_hdcti.sh configs/HDCTI_etcm_mention10_cold_start_no_dense_herb_only_pilot.conf
+./run_hdcti.sh configs/HDCTI_etcm_mention10_cold_start_no_dense_sp_fbha_pilot.conf
+```
+
+预注册 Gate 保持不变：四库 macro validation AUPR 增量不小于 `+0.002`，至少 3/4 数据集不下降，任一数据集下降不超过 `0.005`，且无 OOM、NaN、非有限 loss 或稀疏算子错误。运行时间只报告，不作为硬淘汰条件。通过后才进入 compound cold-start 完整五折；失败则冻结为探索性结果，不再搜索单侧开关或先验强度。
+
+| 数据集 | Hctx-P AUPR | SP-FBHA AUPR | 增量 | 状态 |
+|---|---:|---:|---:|---|
+| TCM-Suite | 待运行 | 待运行 | - | 待运行 |
+| TCMSP | 待运行 | 待运行 | - | 待运行 |
+| SymMap2.0 | 待运行 | 待运行 | - | 待运行 |
+| ETCM2.0 | 待运行 | 待运行 | - | 待运行 |
+
 ## 9. 研究边界
 
 SP-FBHA 是当前仓库中的候选实现名称，不据此声称文献首创。进入论文主模型前仍需完成针对 hypergraph attention、incidence attention 和 degree/specificity prior 的近邻工作核验，并明确与已有 HyperGAT/HNHN/AllSet 类方法的结构差异。
