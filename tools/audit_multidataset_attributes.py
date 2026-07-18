@@ -47,6 +47,13 @@ def parse_args():
             "<dataset>/protein_attributes.csv standardized enrichment files."
         ),
     )
+    parser.add_argument(
+        "--entity-mapping", action="append", default=[], metavar="NAME=DIR",
+        help=(
+            "Verified directory containing compound_alignment.csv and "
+            "protein_alignment.csv for one dataset; may be repeated."
+        ),
+    )
     parser.add_argument("--minimum-smiles-coverage", type=float, default=0.70)
     parser.add_argument("--minimum-sequence-coverage", type=float, default=0.95)
     parser.add_argument("--minimum-formula-match", type=float, default=0.95)
@@ -140,13 +147,17 @@ def read_rich_rows(path, id_column, selected_ids):
     return rows
 
 
-def read_anonymous_ids(path):
+def read_anonymous_crosswalk(path):
     ids = set()
+    labels = set()
     with path.open(encoding="utf-8", newline="") as handle:
         for row in csv.reader(handle):
             if row and row[0].strip():
-                ids.add(row[0].strip())
-    return ids
+                entity_id = row[0].strip()
+                ids.add(entity_id)
+                if not entity_id.isdigit():
+                    labels.add(entity_id)
+    return ids, labels
 
 
 def valid_uniprot_entities(rows):
@@ -172,7 +183,84 @@ def compound_lookup_entities(rows):
     return lookup
 
 
-def local_mapping_audit(dataset_dir, compound_ids, protein_ids):
+def read_verified_alignment(path, selected_ids):
+    if path is None or not path.exists():
+        return {}
+    with path.open(encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        if "local_entity_id" not in (reader.fieldnames or []):
+            raise ValueError("%s requires local_entity_id." % path)
+        return {
+            str(row["local_entity_id"]).strip(): row
+            for row in reader
+            if str(row.get("local_entity_id", "")).strip() in selected_ids
+        }
+
+
+def verified_mapping_audit(mapping_dir, compound_ids, protein_ids):
+    if mapping_dir is None:
+        return None
+    mapping_dir = Path(mapping_dir).expanduser().resolve()
+    compound_path = mapping_dir / "compound_alignment.csv"
+    protein_path = mapping_dir / "protein_alignment.csv"
+    if not compound_path.exists() or not protein_path.exists():
+        raise FileNotFoundError(
+            "Verified alignment directory requires compound_alignment.csv and "
+            "protein_alignment.csv: %s" % mapping_dir
+        )
+    compounds = read_verified_alignment(compound_path, compound_ids)
+    proteins = read_verified_alignment(protein_path, protein_ids)
+    compound_lookup = {
+        entity_id for entity_id, row in compounds.items()
+        if nonempty(row.get("source_entity_id")) and (
+            nonempty(row.get("canonical_name"))
+            or nonempty(row.get("pubchem_id"))
+            or nonempty(row.get("cas_id"))
+            or nonempty(row.get("tcmsp_id"))
+        )
+    }
+    protein_lookup = {
+        entity_id for entity_id, row in proteins.items()
+        if nonempty(row.get("source_entity_id")) and any(
+            nonempty(row.get(column)) for column in (
+                "uniprot_id", "ensembl_id", "ncbi_id", "gene_symbol"
+            )
+        )
+    }
+    return {
+        "mapping_type": "verified_official_biological_metadata",
+        "compound_mapping_path": str(compound_path),
+        "protein_mapping_path": str(protein_path),
+        "compound_mapping_sha256": sha256_file(compound_path),
+        "protein_mapping_sha256": sha256_file(protein_path),
+        "compound_rows": len(compounds),
+        "protein_rows": len(proteins),
+        "compound_mapping_coverage": ratio(len(compounds), len(compound_ids)),
+        "protein_mapping_coverage": ratio(len(proteins), len(protein_ids)),
+        "compound_biological_lookup_entities": len(compound_lookup),
+        "compound_biological_lookup_coverage": ratio(
+            len(compound_lookup), len(compound_ids)
+        ),
+        "protein_biological_lookup_entities": len(protein_lookup),
+        "protein_biological_lookup_coverage": ratio(
+            len(protein_lookup), len(protein_ids)
+        ),
+        "available_fields": {
+            "compound": sorted(next(iter(compounds.values())).keys())
+            if compounds else [],
+            "protein": sorted(next(iter(proteins.values())).keys())
+            if proteins else [],
+        },
+    }
+
+
+def local_mapping_audit(
+        dataset_dir, compound_ids, protein_ids, verified_mapping_dir=None):
+    verified = verified_mapping_audit(
+        verified_mapping_dir, compound_ids, protein_ids
+    )
+    if verified is not None:
+        return verified
     rich_compound, rich_protein = rich_mapping_paths(dataset_dir)
     if rich_compound is not None:
         compounds = read_rich_rows(rich_compound, "compound_id", compound_ids)
@@ -207,8 +295,43 @@ def local_mapping_audit(dataset_dir, compound_ids, protein_ids):
 
     anonymous_compound, anonymous_protein = anonymous_mapping_paths(dataset_dir)
     if anonymous_compound is not None and anonymous_protein is not None:
-        mapped_compounds = read_anonymous_ids(anonymous_compound) & compound_ids
-        mapped_proteins = read_anonymous_ids(anonymous_protein) & protein_ids
+        compound_rows, compound_labels = read_anonymous_crosswalk(
+            anonymous_compound
+        )
+        protein_rows, protein_labels = read_anonymous_crosswalk(anonymous_protein)
+        mapped_compounds = compound_rows & compound_ids
+        mapped_proteins = protein_rows & protein_ids
+        named_source_queries = (
+            "molecule_ID" in compound_labels and "target_ID" in protein_labels
+        )
+        if named_source_queries:
+            return {
+                "mapping_type": "source_database_query_ids",
+                "compound_mapping_path": str(anonymous_compound),
+                "protein_mapping_path": str(anonymous_protein),
+                "compound_mapping_sha256": sha256_file(anonymous_compound),
+                "protein_mapping_sha256": sha256_file(anonymous_protein),
+                "compound_rows": len(mapped_compounds),
+                "protein_rows": len(mapped_proteins),
+                "compound_mapping_coverage": ratio(
+                    len(mapped_compounds), len(compound_ids)
+                ),
+                "protein_mapping_coverage": ratio(
+                    len(mapped_proteins), len(protein_ids)
+                ),
+                "compound_biological_lookup_entities": len(mapped_compounds),
+                "compound_biological_lookup_coverage": ratio(
+                    len(mapped_compounds), len(compound_ids)
+                ),
+                "protein_biological_lookup_entities": len(mapped_proteins),
+                "protein_biological_lookup_coverage": ratio(
+                    len(mapped_proteins), len(protein_ids)
+                ),
+                "available_fields": {
+                    "compound": ["TCMSP:molecule_query", "matrix_entity_id"],
+                    "protein": ["TCMSP:target_query", "matrix_entity_id"],
+                },
+            }
         return {
             "mapping_type": "anonymous_numeric_ids",
             "compound_mapping_path": str(anonymous_compound),
@@ -335,19 +458,33 @@ def parse_dataset_overrides(values):
     return datasets
 
 
-def audit_datasets(datasets, alignment_root=None, thresholds=None):
+def parse_mapping_overrides(values):
+    mappings = {}
+    for value in values:
+        if "=" not in value:
+            raise ValueError("--entity-mapping must use NAME=DIR: %s" % value)
+        name, path = value.split("=", 1)
+        mappings[name.strip()] = Path(path).expanduser().resolve()
+    return mappings
+
+
+def audit_datasets(
+        datasets, alignment_root=None, thresholds=None, mapping_overrides=None):
     thresholds = thresholds or {
         "minimum_smiles_coverage": 0.70,
         "minimum_sequence_coverage": 0.95,
         "minimum_formula_match": 0.95,
         "minimum_ready_datasets": 3,
     }
+    mapping_overrides = mapping_overrides or {}
     rows = []
     for name, directory in datasets.items():
         directory = Path(directory).expanduser().resolve()
         cp_path = resolve_cp_path(directory)
         compound_ids, protein_ids, malformed = relation_entities(cp_path)
-        local = local_mapping_audit(directory, compound_ids, protein_ids)
+        local = local_mapping_audit(
+            directory, compound_ids, protein_ids, mapping_overrides.get(name)
+        )
         compound_path, protein_path = alignment_paths(alignment_root, name)
         actual = actual_attribute_audit(
             compound_path, protein_path, compound_ids, protein_ids
@@ -365,15 +502,15 @@ def audit_datasets(datasets, alignment_root=None, thresholds=None):
             "decision": dataset_decision(local, actual, thresholds),
         })
     ready = sum(row["decision"] == "supports_multimodal_pilot" for row in rows)
-    blocked = sum(
-        row["decision"] == "blocked_missing_biological_mapping" for row in rows
+    pending = sum(
+        row["decision"] == "pending_external_enrichment" for row in rows
     )
     if ready >= thresholds["minimum_ready_datasets"]:
         decision = "supports_cross_dataset_multimodal_pilot"
-    elif blocked:
-        decision = "blocked_cross_dataset_entity_alignment"
-    else:
+    elif ready + pending >= thresholds["minimum_ready_datasets"]:
         decision = "pending_cross_dataset_enrichment"
+    else:
+        decision = "blocked_cross_dataset_entity_alignment"
     return {
         "audit_type": "multidataset_entity_attribute_coverage",
         "created_at": datetime.now().astimezone().isoformat(),
@@ -454,6 +591,7 @@ def main():
         parse_dataset_overrides(args.dataset),
         alignment_root=args.alignment_root,
         thresholds=thresholds,
+        mapping_overrides=parse_mapping_overrides(args.entity_mapping),
     )
     output_dir = Path(args.output_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)

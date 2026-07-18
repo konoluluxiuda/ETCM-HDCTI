@@ -9,7 +9,8 @@
 运行命令：
 
 ```bash
-python tools/audit_multidataset_attributes.py
+python tools/audit_multidataset_attributes.py \
+  --entity-mapping 'SymMap2.0=results/symmap_official_alignment'
 ```
 
 本地机器可读结果位于：
@@ -24,25 +25,25 @@ results/multidataset_attribute_coverage/report.md
 | 数据集 | C-P compound | C-P protein | 映射类型 | 化合物生物标识 | 蛋白生物标识 | 实际 SMILES | 实际序列 |
 |---|---:|---:|---|---:|---:|---:|---:|
 | TCM-Suite | 1,187 | 7,258 | 无实体映射 | 0% | 0% | 0% | 0% |
-| TCMSP | 6,929 | 1,748 | 匿名数字 ID 对照 | 0% | 0% | 0% | 0% |
-| SymMap2.0 | 1,618 | 4,027 | 匿名数字 ID 列表 | 0% | 0% | 0% | 0% |
+| TCMSP | 6,929 | 1,748 | TCMSP 页面查询 ID | 100% | 100% | 0% | 0% |
+| SymMap2.0 | 1,618 | 4,027 | 官方 V2 精确对齐 | 100% | 100% | 0% | 0% |
 | ETCM2.0_core_mention10 | 9,519 | 509 | 生物学元数据 | 100% | 100% | 0% | 0% |
 
 总体判定：
 
 ```text
-blocked_cross_dataset_entity_alignment
+pending_cross_dataset_enrichment
 ```
 
-TCMSP 的 `*_id_all.csv` 只是一个数字 ID 到另一个数字 ID 的映射，没有化合物名称、PubChem/TCMSP compound identifier、基因符号或 UniProt accession。SymMap2.0 的 `*_id_all.txt` 只有匿名数字 ID，TCM-Suite 当前没有实体映射文件。ETCM2.0 虽然具备化合物名称、TCMIP ID、分子式和 UniProt accession，但仓库中仍没有实际 SMILES 与蛋白序列文件。
+TCMSP 的 `*_id_all.csv` 中第一列 ID 可作为官方网站 molecule/target 页面的查询键，第二列是预处理生成的连续矩阵编号；既有候选核验已从页面返回 Molecule ID、Target ID、InChIKey、PubChem CID 和 DrugBank target 信息，因此 TCMSP 记为“可外部补全”。SymMap2.0 已使用官方 V2 SMIT/SMTT 文件完成 100% 精确 ID 对齐，其中 C-P 使用成分的 PubChem 覆盖为 `63.78%`，蛋白 UniProt/Ensembl 覆盖为 `25.23%/97.94%`。ETCM2.0 具备化合物名称、TCMIP ID、分子式和 UniProt accession。三个库均具备继续补全的来源标识，但仓库中仍没有达到门槛的批量 SMILES 或蛋白序列文件；TCM-Suite 仍没有实体映射。
 
-因此，当前直接实现多模态模型只会得到 ETCM2.0 专用扩展，不能作为四数据集共享主模型，也不能在其他三个基准数据集上进行公平消融。
+因此，当前已经满足“三库共享 Pilot”的映射前提，但尚未满足实际属性覆盖前提。此时直接实现模型仍会把“可查询标识”误当成“可用模态”，必须先完成 TCMSP、SymMap2.0 和 ETCM2.0 的标准化属性补全。
 
 ### 2.1 上游发布文件初查
 
-HDCTI 论文的数据可用性声明只指向[作者 GitHub 仓库](https://github.com/tong87-bio/HDCTI)。该仓库当前发布的数据文件与本地清单一致：TCM-Suite 目录只有关系和样本文件，TCMSP 与 SymMap2.0 的映射仍是匿名数字 ID，没有另行发布名称、PubChem、UniProt 或 SMILES/sequence 对照表。因此，重新下载 HDCTI 仓库不能补齐实体映射。
+HDCTI 论文的数据可用性声明只指向[作者 GitHub 仓库](https://github.com/tong87-bio/HDCTI)。该仓库当前发布的数据文件与本地清单一致，重新下载仓库本身不能补齐属性。进一步从 [SymMap 官方下载页](https://www.symmap.org/download/)取得 V2 SMIT/SMTT 后，确认本地 C-P 实体 ID 可与官方 `Mol_id/Gene_id` 精确对齐；TCMSP 第一列 ID 也可用于官网页面查询。当前上游映射缺口只剩 TCM-Suite。
 
-后续溯源对象应是 TCM-Suite、TCMSP 和 SymMap2.0 各自数据库的原始版本、导出文件或作者预处理前对照表，而不是 HDCTI 仓库中已经匿名化的关系矩阵。若上游版本与论文抓取时间不一致，必须记录版本和日期，不能仅凭关系度数强行对齐。
+后续重点从“恢复 SymMap 命名空间”转为“三库属性补全”：SymMap 按 PubChem、Ensembl 和 UniProt 补全；TCMSP 批量验证页面查询键；ETCM 按 TCMIP/名称/分子式与 UniProt 补全。若上游版本与论文抓取时间不一致，继续记录版本、文件哈希和冲突，不能静默覆盖。
 
 ## 3. 共享主模型门槛
 
@@ -76,18 +77,16 @@ python tools/audit_multidataset_attributes.py \
 
 本审计最初建议的“结构支持度自适应双专家冷启动框架”已经完成四库一折 Pilot，并因 macro AUPR 为负、SymMap2.0 明显退化而终止。后续的超边注意力、HILGA 和侧超图角色迁移也没有通过四库冻结闸门。因此，不能再把支持度路由或另一种匿名拓扑注意力写成本文档的下一步。
 
-当前下一阶段改为“跨库实体映射恢复”，顺序固定为：
+跨库实体映射恢复的最低三库目标已经完成，当前顺序更新为：
 
 ```text
-原始数据库或作者发布文件溯源
+TCMSP / SymMap / ETCM 标准属性补全
         ↓
-本地匿名 ID 与上游实体 ID 的可追溯对齐
-        ↓
-化合物名称/分子式与蛋白 accession 冲突审查
-        ↓
-PubChem/UniProt 属性补全
+化合物分子式、蛋白物种与一对多冲突审查
         ↓
 重新运行本审计
+        ↓
+通过门槛后实施三库共享多模态 Pilot
 ```
 
 对齐表至少记录：
@@ -104,6 +103,6 @@ mapping_confidence,review_status
 2. 不把名称模糊匹配结果自动视为确定映射；一对多和多对一冲突必须保留并审查。
 3. 化合物需要使用名称、来源 ID 和分子式共同校验；蛋白优先使用 UniProt accession，并记录物种。
 4. 在至少三个数据集达到本文第 3 节门槛前，不实现共享多模态分支。
-5. 若无法恢复 TCMSP 和 SymMap2.0 的上游标识，多模态继续限定为 ETCM2.0 扩展，不包装为跨数据库主创新。
+5. TCM-Suite 映射不阻塞最低三库 Pilot，但在恢复前不得声称实现了四库统一多模态模型。
 
-当前模型主线仍冻结为 Strict-HDCTI + Hctx-P + CHCR；实体映射恢复是决定能否开启下一项信息增量型创新的数据前置工作，不是新的模型贡献。
+当前模型主线仍冻结为 Strict-HDCTI + Hctx-P + CHCR；下一项 Go/No-Go 是三库真实属性覆盖，不是继续搜索匿名拓扑注意力。

@@ -103,6 +103,88 @@ class MultiDatasetAttributeAuditTest(unittest.TestCase):
         self.assertEqual(report["decision"], "supports_cross_dataset_multimodal_pilot")
         self.assertEqual(report["ready_datasets"], 3)
 
+    def test_tcmsp_query_labels_are_biological_lookup_ids(self):
+        dataset = self.make_cp("tcmsp")
+        (dataset / "compound_id_all.csv").write_text(
+            "1,640001\nmolecule_ID,640002\n2,640003\n", encoding="utf-8"
+        )
+        (dataset / "protein_id_all.csv").write_text(
+            "10,17000\ntarget_ID,17001\n11,17002\n", encoding="utf-8"
+        )
+
+        report = audit_datasets({"TCMSP": dataset})
+        row = report["datasets"][0]
+
+        self.assertEqual(
+            row["local_mapping"]["mapping_type"], "source_database_query_ids"
+        )
+        self.assertEqual(
+            row["local_mapping"]["compound_biological_lookup_coverage"], 1.0
+        )
+        self.assertEqual(
+            row["local_mapping"]["protein_biological_lookup_coverage"], 1.0
+        )
+        self.assertEqual(row["decision"], "pending_external_enrichment")
+
+    def test_verified_official_alignment_unblocks_biological_lookup(self):
+        dataset = self.make_cp("symmap")
+        mapping = self.root / "symmap_mapping"
+        mapping.mkdir()
+        with (mapping / "compound_alignment.csv").open(
+                "w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=[
+                "local_entity_id", "source_entity_id", "canonical_name",
+                "pubchem_id"
+            ])
+            writer.writeheader()
+            writer.writerows([
+                {"local_entity_id": 1, "source_entity_id": 1,
+                 "canonical_name": "A", "pubchem_id": "1"},
+                {"local_entity_id": 2, "source_entity_id": 2,
+                 "canonical_name": "B", "pubchem_id": "2"},
+            ])
+        with (mapping / "protein_alignment.csv").open(
+                "w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=[
+                "local_entity_id", "source_entity_id", "gene_symbol",
+                "ensembl_id"
+            ])
+            writer.writeheader()
+            writer.writerows([
+                {"local_entity_id": 10, "source_entity_id": 10,
+                 "gene_symbol": "P1", "ensembl_id": "ENSG1"},
+                {"local_entity_id": 11, "source_entity_id": 11,
+                 "gene_symbol": "P2", "ensembl_id": "ENSG2"},
+            ])
+
+        report = audit_datasets(
+            {"SymMap2.0": dataset},
+            mapping_overrides={"SymMap2.0": mapping},
+        )
+        row = report["datasets"][0]
+
+        self.assertEqual(
+            row["local_mapping"]["mapping_type"],
+            "verified_official_biological_metadata",
+        )
+        self.assertEqual(
+            row["local_mapping"]["protein_biological_lookup_coverage"], 1.0
+        )
+        self.assertEqual(row["decision"], "pending_external_enrichment")
+
+    def test_three_pending_datasets_move_overall_state_to_enrichment(self):
+        datasets = {}
+        for index in range(3):
+            name = "pending%d" % index
+            dataset = self.make_cp(name)
+            self.make_rich_mapping(dataset)
+            datasets[name] = dataset
+        datasets["blocked"] = self.make_cp("blocked")
+
+        report = audit_datasets(datasets)
+
+        self.assertEqual(report["decision"], "pending_cross_dataset_enrichment")
+
 
 if __name__ == "__main__":
     unittest.main()
