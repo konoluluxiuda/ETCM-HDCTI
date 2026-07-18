@@ -29,6 +29,7 @@ from util.model_components import (
     resolve_context_mask_training,
     resolve_counterfactual_context,
     resolve_early_stopping,
+    resolve_global_token_attention,
     resolve_hyperedge_attention,
     resolve_herb_context_attention,
     resolve_pair_decoder,
@@ -43,6 +44,10 @@ from util.support_router import (
 from util.hyperedge_attention import (
     hyperedge_specificity_prior,
     ordered_incidence_ids,
+)
+from util.global_token_attention import (
+    global_token_attention_complexity,
+    summarize_global_token_attention,
 )
 from sklearn.metrics import average_precision_score, roc_auc_score
 # tf.compat.v1.set_random_seed(4321)
@@ -279,6 +284,15 @@ class HDCTI(herbRecommender):
         self.context_mask_training = resolve_context_mask_training(self.config)
         self.support_router = resolve_support_router(self.config)
         self.hyperedge_attention = resolve_hyperedge_attention(self.config)
+        self.global_token_attention = resolve_global_token_attention(self.config)
+        if (
+            self.hyperedge_attention['enabled']
+            and self.global_token_attention['enabled']
+        ):
+            raise ValueError(
+                'Global token attention and factorized hyperedge attention '
+                'cannot be enabled in the same experiment.'
+            )
         if self.support_router['enabled']:
             if getattr(self.data, 'protocol', 'legacy') != 'strict':
                 raise ValueError(
@@ -310,6 +324,22 @@ class HDCTI(herbRecommender):
                     'on' if self.hyperedge_attention['pd_enabled'] else 'off',
                     self.hyperedge_attention['temperature'],
                     self.hyperedge_attention['prior_scale'],
+                )
+            )
+        if self.global_token_attention['enabled']:
+            if self.emb_size % self.global_token_attention['heads'] != 0:
+                raise ValueError(
+                    'num.factors must be divisible by '
+                    'global.token.attention.heads.'
+                )
+            print(
+                'HILGA global token attention: H-C=%s P-D=%s tokens=%d '
+                'heads=%d temperature=%g.' % (
+                    'on' if self.global_token_attention['hc_enabled'] else 'off',
+                    'on' if self.global_token_attention['pd_enabled'] else 'off',
+                    self.global_token_attention['tokens'],
+                    self.global_token_attention['heads'],
+                    self.global_token_attention['temperature'],
                 )
             )
 
@@ -454,6 +484,18 @@ class HDCTI(herbRecommender):
             attention_max_nodes = int(self.config['attention.max.nodes'])
         use_compound_full_attention = attention_max_nodes is None or self.num_compounds <= attention_max_nodes
         use_protein_full_attention = attention_max_nodes is None or self.num_proteins <= attention_max_nodes
+        global_attention_conflicts = (
+            self.global_token_attention['hc_enabled']
+            and use_compound_full_attention
+        ) or (
+            self.global_token_attention['pd_enabled']
+            and use_protein_full_attention
+        )
+        if global_attention_conflicts:
+            raise ValueError(
+                'HILGA replaces dense full-node attention; set '
+                'attention.max.nodes=0 for HILGA experiments.'
+            )
         if not use_compound_full_attention:
             print('Skipping compound full self-attention: nodes=%d > attention.max.nodes=%d' %
                   (self.num_compounds, attention_max_nodes))
@@ -582,6 +624,30 @@ class HDCTI(herbRecommender):
                 tf.zeros([1]), name='decoder_mlp_output_bias'
             )
 
+        self.global_token_diagnostic_tensors = {}
+        if self.global_token_attention['enabled']:
+            token_count = self.global_token_attention['tokens']
+            for side in ('hc', 'pd'):
+                if not self.global_token_attention[side + '_enabled']:
+                    continue
+                self.global_token_diagnostic_tensors[side] = []
+                for layer in range(1, self.n_layer + 1):
+                    prefix = '%s_global_token' % side
+                    self.weights['%s_assignment_%d' % (prefix, layer)] = tf.Variable(
+                        initializer([self.emb_size, token_count]),
+                        name='%s_assignment_%d' % (prefix, layer),
+                    )
+                    for projection in ('q', 'k', 'v', 'output'):
+                        self.weights['%s_%s_%d' % (
+                            prefix, projection, layer
+                        )] = tf.Variable(
+                            initializer([self.emb_size, self.emb_size]),
+                            name='%s_%s_%d' % (prefix, projection, layer),
+                        )
+                    self.weights['%s_gamma_%d' % (prefix, layer)] = tf.Variable(
+                        tf.zeros([1]), name='%s_gamma_%d' % (prefix, layer)
+                    )
+
         def multi_head_attention_compound(embeddings, attention_weights, num_heads, head_dim):
             if not use_compound_full_attention:
                 return embeddings
@@ -692,6 +758,87 @@ class HDCTI(herbRecommender):
             )
             return edge_embeddings, propagated_nodes
 
+        def hyperedge_induced_global_attention(
+                node_embeddings,
+                edge_embeddings,
+                active_edge_mask,
+                side,
+                layer):
+            token_count = self.global_token_attention['tokens']
+            head_count = self.global_token_attention['heads']
+            head_dim = self.emb_size // head_count
+            temperature = self.global_token_attention['temperature']
+            prefix = '%s_global_token' % side
+
+            normalized_edges = tf.math.l2_normalize(edge_embeddings, axis=1)
+            assignment_logits = tf.matmul(
+                normalized_edges,
+                self.weights['%s_assignment_%d' % (prefix, layer)],
+            )
+            edge_mask = tf.reshape(active_edge_mask, [-1, 1])
+            assignment_logits += (1.0 - edge_mask) * -1e9
+            edge_assignments = tf.nn.softmax(
+                assignment_logits / temperature,
+                axis=0,
+                name='%s_assignment_layer_%d' % (prefix, layer),
+            )
+            token_embeddings = tf.matmul(
+                edge_assignments,
+                edge_embeddings,
+                transpose_a=True,
+                name='%s_pool_layer_%d' % (prefix, layer),
+            )
+
+            queries = tf.matmul(
+                tf.math.l2_normalize(node_embeddings, axis=1),
+                self.weights['%s_q_%d' % (prefix, layer)],
+            )
+            keys = tf.matmul(
+                tf.math.l2_normalize(token_embeddings, axis=1),
+                self.weights['%s_k_%d' % (prefix, layer)],
+            )
+            values = tf.matmul(
+                token_embeddings,
+                self.weights['%s_v_%d' % (prefix, layer)],
+            )
+            queries = tf.transpose(
+                tf.reshape(queries, [-1, head_count, head_dim]), [1, 0, 2]
+            )
+            keys = tf.transpose(
+                tf.reshape(keys, [token_count, head_count, head_dim]), [1, 0, 2]
+            )
+            values = tf.transpose(
+                tf.reshape(values, [token_count, head_count, head_dim]), [1, 0, 2]
+            )
+            node_attention = tf.nn.softmax(
+                tf.matmul(queries, keys, transpose_b=True)
+                / (tf.sqrt(float(head_dim)) * temperature),
+                axis=-1,
+                name='%s_node_attention_layer_%d' % (prefix, layer),
+            )
+            attended = tf.matmul(node_attention, values)
+            attended = tf.reshape(
+                tf.transpose(attended, [1, 0, 2]), [-1, self.emb_size]
+            )
+            update = tf.matmul(
+                attended,
+                self.weights['%s_output_%d' % (prefix, layer)],
+                name='%s_update_layer_%d' % (prefix, layer),
+            )
+            residual_scale = tf.tanh(
+                self.weights['%s_gamma_%d' % (prefix, layer)][0]
+            )
+            self.global_token_diagnostic_tensors[side].append({
+                'edge_assignments': edge_assignments,
+                'node_attention': node_attention,
+                'token_embeddings': token_embeddings,
+            })
+            return tf.add(
+                node_embeddings,
+                residual_scale * update,
+                name='%s_residual_layer_%d' % (prefix, layer),
+            )
+
         hc_attention_edge_ids_tf = tf.constant(
             hc_attention_ids['forward_edge_ids'], dtype=tf.int64
         )
@@ -707,6 +854,9 @@ class HDCTI(herbRecommender):
         hc_specificity_prior_tf = tf.constant(
             hc_specificity_prior, dtype=tf.float32
         )
+        hc_active_edge_mask_tf = tf.constant(
+            (hc_edge_degrees > 0).astype(np.float32), dtype=tf.float32
+        )
         pd_attention_edge_ids_tf = tf.constant(
             pd_attention_ids['forward_edge_ids'], dtype=tf.int64
         )
@@ -721,6 +871,9 @@ class HDCTI(herbRecommender):
         )
         pd_specificity_prior_tf = tf.constant(
             pd_specificity_prior, dtype=tf.float32
+        )
+        pd_active_edge_mask_tf = tf.constant(
+            (pd_edge_degrees > 0).astype(np.float32), dtype=tf.float32
         )
 
         compound_embeddings = self_gating(self.compound_embeddings, 1)
@@ -795,12 +948,28 @@ class HDCTI(herbRecommender):
                                                             head_dim)
             new_compound_embeddings = tf.nn.leaky_relu(
                 tf.matmul(new_compound_embeddings, self.weights['layer_%d' % (i + 1)]) + compound_embeddings)
+            if self.global_token_attention['hc_enabled']:
+                new_compound_embeddings = hyperedge_induced_global_attention(
+                    new_compound_embeddings,
+                    new_hc_edge,
+                    hc_active_edge_mask_tf,
+                    'hc',
+                    i + 1,
+                )
         
             # 计算蛋白质节点的新嵌入
             new_protein_embeddings = multi_head_attention_protein(new_protein_embeddings, self.attention_weights, num_heads,
                                                           head_dim)
             new_protein_embeddings = tf.nn.leaky_relu(
                 tf.matmul(new_protein_embeddings, self.weights['layer_1_%d' % (i + 1)]) + protein_embeddings)
+            if self.global_token_attention['pd_enabled']:
+                new_protein_embeddings = hyperedge_induced_global_attention(
+                    new_protein_embeddings,
+                    new_pd_edge,
+                    pd_active_edge_mask_tf,
+                    'pd',
+                    i + 1,
+                )
         
             # 添加节点的注意力机制
         
@@ -1454,6 +1623,74 @@ class HDCTI(herbRecommender):
         self.i_context = state['protein_context']
         self.herb_edge = state['herb_edge']
         self.weight = state['weights']
+        self.global_token_attention_summary = None
+        if self.global_token_attention['enabled']:
+            layer_summaries = {}
+            for side, tensor_rows in self.global_token_diagnostic_tensors.items():
+                layer_summaries[side] = []
+                for layer_index, tensors in enumerate(tensor_rows, start=1):
+                    values = self.sess.run(
+                        tensors, feed_dict={self.isTraining: 0}
+                    )
+                    row = summarize_global_token_attention(
+                        values['edge_assignments'],
+                        values['node_attention'],
+                        values['token_embeddings'],
+                    )
+                    raw_gamma = float(np.asarray(self.weight[
+                        '%s_global_token_gamma_%d' % (side, layer_index)
+                    ]).reshape(-1)[0])
+                    row.update({
+                        'layer': layer_index,
+                        'raw_residual_scale': raw_gamma,
+                        'residual_scale': float(np.tanh(raw_gamma)),
+                    })
+                    layer_summaries[side].append(row)
+            structure = {}
+            for side, node_key, edge_key in (
+                    ('hc', 'nodes', 'hyperedges'),
+                    ('pd', 'nodes', 'hyperedges')):
+                if not self.global_token_attention[side + '_enabled']:
+                    continue
+                side_structure = self.hyperedge_attention_structure[side]
+                structure[side] = dict(side_structure)
+                structure[side].update(global_token_attention_complexity(
+                    side_structure[node_key],
+                    side_structure[edge_key],
+                    self.global_token_attention['tokens'],
+                    self.global_token_attention['heads'],
+                ))
+            self.global_token_attention_summary = {
+                'mode': self.global_token_attention['mode'],
+                'hc_enabled': self.global_token_attention['hc_enabled'],
+                'pd_enabled': self.global_token_attention['pd_enabled'],
+                'tokens': self.global_token_attention['tokens'],
+                'heads': self.global_token_attention['heads'],
+                'temperature': self.global_token_attention['temperature'],
+                'structure': structure,
+                'layers': layer_summaries,
+            }
+            print(
+                'HILGA residual scales: %s' % ', '.join(
+                    '%s-L%d=%.6f' % (
+                        side.upper(), row['layer'], row['residual_scale']
+                    )
+                    for side, rows in layer_summaries.items()
+                    for row in rows
+                )
+            )
+            global_attention_path = os.path.join(
+                model_dir, 'global_token_attention.json'
+            )
+            with open(global_attention_path, 'w', encoding='utf-8') as handle:
+                json.dump(
+                    self.global_token_attention_summary,
+                    handle,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                handle.write('\n')
+            print('HILGA metadata: %s' % global_attention_path)
         self.hyperedge_attention_summary = None
         if self.hyperedge_attention['enabled']:
             parameter_summary = {}

@@ -194,6 +194,54 @@ def resolve_hyperedge_attention(config):
     }
 
 
+def resolve_global_token_attention(config):
+    enabled = _config_bool(config, 'global.token.attention', False)
+    mode = (
+        str(config['global.token.attention.mode']).strip().lower()
+        if config.contains('global.token.attention.mode')
+        else 'hyperedge_induced'
+    )
+    hc_enabled = _config_bool(config, 'global.token.attention.hc', True)
+    pd_enabled = _config_bool(config, 'global.token.attention.pd', True)
+    token_count = (
+        int(config['global.token.attention.tokens'])
+        if config.contains('global.token.attention.tokens') else 32
+    )
+    head_count = (
+        int(config['global.token.attention.heads'])
+        if config.contains('global.token.attention.heads') else 2
+    )
+    temperature = (
+        float(config['global.token.attention.temperature'])
+        if config.contains('global.token.attention.temperature') else 1.0
+    )
+    if mode != 'hyperedge_induced':
+        raise ValueError(
+            'global.token.attention.mode must be hyperedge_induced.'
+        )
+    if enabled and not (hc_enabled or pd_enabled):
+        raise ValueError(
+            'At least one of global.token.attention.hc/pd must be enabled.'
+        )
+    if token_count <= 0:
+        raise ValueError('global.token.attention.tokens must be positive.')
+    if head_count <= 0:
+        raise ValueError('global.token.attention.heads must be positive.')
+    if temperature <= 0:
+        raise ValueError(
+            'global.token.attention.temperature must be positive.'
+        )
+    return {
+        'enabled': enabled,
+        'mode': mode,
+        'hc_enabled': enabled and hc_enabled,
+        'pd_enabled': enabled and pd_enabled,
+        'tokens': token_count,
+        'heads': head_count,
+        'temperature': temperature,
+    }
+
+
 def counterfactual_margin_values(
         factual_context_logits,
         counterfactual_context_logits,
