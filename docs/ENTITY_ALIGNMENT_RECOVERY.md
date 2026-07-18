@@ -124,3 +124,20 @@ python tools/audit_multidataset_attributes.py \
 * 蛋白序列覆盖率至少 95%。
 
 当前 TCMSP、SymMap2.0 和 ETCM2.0 已达到来源标识门槛，下一步是生成三库标准化 SMILES/sequence 文件并重新审计。真实属性覆盖未达标前，论文仍使用 Strict-HDCTI + Hctx-P + CHCR 作为冻结主线。
+
+## 6. SymMap 属性补全工作清单
+
+离线生成命令：
+
+```bash
+python tools/prepare_symmap_attribute_worklists.py
+```
+
+当前分层结果：
+
+* Compound：`1,032/1,618` 已有 PubChem CID，70% 门槛需要 `1,133` 个，仍差 `101` 个；
+* 缺 CID 的 compound 中，43 个可按名称+分子式审查，27 个可按名称+CAS 审查，13 个可按 TCMSP 交叉标识审查，503 个仅有名称，必须保留人工审核状态；
+* Protein：`1,016/4,027` 已有 UniProt，另有 `2,944` 个可按 Ensembl 映射；两者合计理论覆盖 `98.34%`；
+* 要达到 95% sequence 门槛，Ensembl 候选至少需要 `95.45%` 成功映射。
+
+输出位于 `results/symmap_attribute_enrichment/`。工作清单只分配查询路线，不访问网络，也不会把名称单独命中自动写成确定映射。
