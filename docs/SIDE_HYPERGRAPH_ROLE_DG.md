@@ -232,9 +232,47 @@ V1 的 No-Go 必须永久保留，不能通过删除困难数据库或只报告 
 
 该调整只处理两个已识别的协议混杂：负例来源和绝对尺度。它不能加入域对齐损失或神经注意力来“救”冻结 probe。V2 若仍未通过，则永久关闭侧超图角色迁移路线；若通过，才允许实现一版固定的角色引导稀疏注意力。
 
-## 9. 通过后的唯一实现方向
+### 8.3 V2 协议校正结果（2026-07-18）
 
-若冻结 probe 通过，只实现一版共享角色编码器：
+固定命令：
+
+```bash
+python tools/audit_side_hypergraph_role_dg.py --audit-version v2
+```
+
+| 目标库 | Percentile-degree AUPR | Full-role AUPR | Delta | Full-role AUC | Degree-matched AUC |
+|---|---:|---:|---:|---:|---:|
+| TCM-Suite | 0.666771 | 0.660680 | -0.006091 | 0.651648 | 0.523217 |
+| TCMSP | 0.755530 | 0.627745 | -0.127786 | 0.652898 | 0.501473 |
+| SymMap2.0 | 0.452714 | 0.595415 | +0.142701 | 0.575885 | 0.451698 |
+| ETCM2.0-mention10 | 0.474240 | 0.509148 | +0.034908 | 0.514183 | 0.504195 |
+
+V2 证明统一负例和库内百分位确实消除了部分 V1 混杂：SymMap2.0 与 ETCM2.0 的 full-role 增量转为正值，四库 full-role AUC 也均不低于 `0.49`。但核心门槛仍失败：
+
+* full-role AUPR 只有 2/4 目标库提高至少 `0.01`，未达到 3/4；
+* degree-matched AUC 为 `0.523217/0.501473/0.451698/0.504195`，0/4 达到 `0.55`；
+* TCMSP full-role 相对 percentile-degree 下降 `0.127786`；
+* 标签置换仍未在所有目标库回到随机范围。
+
+因此 V2 正式判定为 **No-Go**，侧超图统计角色跨库迁移路线永久关闭。后续不得搜索 percentile 公式、role 特征、bin 数、Top-K、域损失或神经编码器，也不得只选取 SymMap2.0/ETCM2.0 的阳性结果实现 RG-SHADG。原始稠密注意力的论文贡献与本轮角色迁移失败是两个不同结论：可以继续保留原注意力作为 Legacy 机制证据，但不能再用当前侧图统计角色构造其稀疏替代。
+
+完整 V2 结果见 `results/side_hypergraph_role_dg/frozen_role_percentile_uniform_seed2026/`。
+
+### 8.4 为什么 SymMap2.0 的表面增量较大
+
+SymMap2.0 的 `+0.142701` 不能单独解释为角色迁移成功，原因包括：
+
+1. **基线较低放大了增量。** percentile-degree AUPR 只有 `0.452714`，full-role 虽提高到 `0.595415`，绝对性能仍只是中等；大 Delta 同时来自较弱的 degree-only 基线。
+2. **侧关系覆盖较完整。** 正例 pair 的 compound/protein/both support 为 `99.37%/95.39%/94.78%`，明显高于 TCM-Suite 和 TCMSP，因此 hyperedge size、rarity、二跳邻居等完整角色特征能覆盖更多评价样本。
+3. **百分位变换适合其相对结构。** SymMap2.0 的受支持 protein degree 中位数为 `6`，不像 ETCM2.0 的 `4325` 那样超出其他源库数量级。V2 把绝对规模转换为相对秩后，源库学习到的部分“高/低连接角色”可以迁移到标准随机未观测对。
+4. **增益没有通过困难对照。** full-role 的标准 AUC 为 `0.575885`，但 degree-matched AUC 降到 `0.451698`。一旦正负 pair 的 compound/protein degree 分布被匹配，角色优势完全消失并出现反向排序。
+5. **V1/V2 方向反转说明协议敏感。** SymMap2.0 在 V1 的 AUPR Delta 为 `-0.106571`，统一负例和百分位后变成 `+0.142701`。这证明结果高度依赖负例来源和角色尺度，而不是一个对协议稳定的生物学机制。
+
+因此，SymMap2.0 可记录为“标准随机未观测候选上的数据集特异阳性信号”，不能作为继续实现 RG-SHADG、修改 Go/No-Go 门槛或只在 SymMap2.0 上报告模型提升的依据。
+
+## 9. 未启用的条件实现方向
+
+以下方案仅在冻结 probe 通过时成立；V1/V2 均 No-Go 后不再实施，保留在此只用于追溯原预注册设计：
 
 ```text
 H-C/P-D side-hypergraph role encoder

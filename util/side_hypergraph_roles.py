@@ -127,15 +127,62 @@ def pair_role_features(compound_features, protein_features):
     )
 
 
+def scalar_pair_features(compound_values, protein_values):
+    compound_values = np.asarray(compound_values, dtype=np.float64)
+    protein_values = np.asarray(protein_values, dtype=np.float64)
+    if compound_values.shape != protein_values.shape:
+        raise ValueError('Compound and protein values must have the same shape.')
+    return np.column_stack((
+        compound_values,
+        protein_values,
+        compound_values * protein_values,
+        np.abs(compound_values - protein_values),
+    ))
+
+
 def degree_pair_features(compound_degrees, protein_degrees):
     compound_degrees = np.log1p(np.asarray(compound_degrees, dtype=np.float64))
     protein_degrees = np.log1p(np.asarray(protein_degrees, dtype=np.float64))
-    return np.column_stack((
-        compound_degrees,
-        protein_degrees,
-        compound_degrees * protein_degrees,
-        np.abs(compound_degrees - protein_degrees),
-    ))
+    return scalar_pair_features(compound_degrees, protein_degrees)
+
+
+def empirical_percentile_roles(role):
+    features = np.asarray(role['features'], dtype=np.float64)
+    if features.ndim != 2 or features.shape[1] != len(ROLE_FEATURE_NAMES):
+        raise ValueError('Unexpected role feature shape.')
+    transformed = np.zeros_like(features)
+    supported = features[:, 0] > 0.5
+    transformed[:, 0] = supported.astype(np.float64)
+    supported_count = int(np.sum(supported))
+    if supported_count == 0:
+        result = dict(role)
+        result['features'] = transformed
+        result['normalization'] = 'within_dataset_empirical_percentile'
+        return result
+
+    for column in range(1, features.shape[1]):
+        values = features[supported, column]
+        order = np.argsort(values, kind='mergesort')
+        sorted_values = values[order]
+        ranks = np.empty(supported_count, dtype=np.float64)
+        start = 0
+        while start < supported_count:
+            end = start + 1
+            while end < supported_count and sorted_values[end] == sorted_values[start]:
+                end += 1
+            average_rank = 0.5 * (start + end - 1)
+            ranks[order[start:end]] = average_rank
+            start = end
+        if supported_count > 1:
+            ranks /= float(supported_count - 1)
+        else:
+            ranks.fill(0.5)
+        transformed[supported, column] = ranks
+
+    result = dict(role)
+    result['features'] = transformed
+    result['normalization'] = 'within_dataset_empirical_percentile'
+    return result
 
 
 def quantile_bin_members(node_ids, degrees, bin_count=10):

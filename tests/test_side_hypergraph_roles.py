@@ -6,7 +6,9 @@ from util.side_hypergraph_roles import (
     ROLE_FEATURE_NAMES,
     build_role_features,
     degree_pair_features,
+    empirical_percentile_roles,
     pair_role_features,
+    scalar_pair_features,
     sample_degree_matched_negatives,
 )
 
@@ -28,6 +30,23 @@ class SideHypergraphRoleTest(unittest.TestCase):
         right = np.asarray([[2.0, 1.0], [4.0, 3.0]])
         self.assertEqual(pair_role_features(left, right).shape, (2, 8))
         self.assertEqual(degree_pair_features([1, 2], [3, 4]).shape, (2, 4))
+        self.assertEqual(scalar_pair_features([1, 2], [3, 4]).shape, (2, 4))
+
+    def test_percentile_roles_preserve_isolated_and_ties(self):
+        role = build_role_features(
+            {'h1': {'c1', 'c2'}, 'h2': {'c3'}},
+            node_universe=('c1', 'c2', 'c3', 'c4'),
+        )
+        transformed = empirical_percentile_roles(role)
+        features = transformed['features']
+        c1 = role['node_index']['c1']
+        c2 = role['node_index']['c2']
+        c4 = role['node_index']['c4']
+        self.assertTrue(np.allclose(features[c1], features[c2]))
+        self.assertEqual(features[c4, 0], 0.0)
+        self.assertTrue(np.all(features[c4, 1:] == 0.0))
+        self.assertTrue(np.all(features[:, 1:] >= 0.0))
+        self.assertTrue(np.all(features[:, 1:] <= 1.0))
 
     def test_degree_matched_negatives_exclude_positives(self):
         positive_pairs = [('c1', 'p1'), ('c2', 'p2')]

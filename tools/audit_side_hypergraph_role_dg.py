@@ -36,15 +36,14 @@ def parse_args():
         )
     )
     parser.add_argument('--seed', type=int, default=2026)
+    parser.add_argument('--audit-version', choices=('v1', 'v2'), default='v1')
     parser.add_argument('--max-positive-pairs', type=int, default=30000)
     parser.add_argument('--degree-bin-count', type=int, default=10)
     parser.add_argument('--minimum-role-gain', type=float, default=0.01)
     parser.add_argument('--minimum-matched-auc', type=float, default=0.55)
     parser.add_argument('--minimum-target-auc', type=float, default=0.49)
     parser.add_argument('--permutation-tolerance', type=float, default=0.05)
-    parser.add_argument('--output-dir', default=(
-        'results/side_hypergraph_role_dg/frozen_role_seed2026'
-    ))
+    parser.add_argument('--output-dir')
     return parser.parse_args()
 
 
@@ -136,19 +135,29 @@ def lookup_degrees(role, node_ids):
     return role['degrees'][[role['node_index'][str(value)] for value in node_ids]]
 
 
-def features_for_pairs(compound_role, protein_role, pairs):
-    from util.side_hypergraph_roles import degree_pair_features, pair_role_features
+def features_for_pairs(compound_role, protein_role, pairs, percentile_degree=False):
+    from util.side_hypergraph_roles import (
+        degree_pair_features,
+        pair_role_features,
+        scalar_pair_features,
+    )
 
     compounds = [left for left, _ in pairs]
     proteins = [right for _, right in pairs]
     compound_features = lookup_rows(compound_role, compounds)
     protein_features = lookup_rows(protein_role, proteins)
-    return {
-        'full': pair_role_features(compound_features, protein_features),
-        'degree': degree_pair_features(
+    if percentile_degree:
+        degree_features = scalar_pair_features(
+            compound_features[:, 1], protein_features[:, 1]
+        )
+    else:
+        degree_features = degree_pair_features(
             lookup_degrees(compound_role, compounds),
             lookup_degrees(protein_role, proteins),
-        ),
+        )
+    return {
+        'full': pair_role_features(compound_features, protein_features),
+        'degree': degree_features,
     }
 
 
@@ -157,6 +166,7 @@ def load_dataset(name, positive_path, args, output_dir, dataset_index):
     from util.io import NEGATIVE_FILE_CANDIDATES, resolve_optional_dataset_file
     from util.side_hypergraph_roles import (
         build_role_features,
+        empirical_percentile_roles,
         read_incidence,
         sample_degree_matched_negatives,
     )
@@ -174,7 +184,19 @@ def load_dataset(name, positive_path, args, output_dir, dataset_index):
         args.max_positive_pairs,
         args.seed + dataset_index * 101,
     )
-    if negative_path:
+    if args.audit_version == 'v2':
+        standard_negatives = generate_unobserved_pairs(
+            all_positives,
+            len(selected_positives),
+            args.seed + dataset_index * 101 + 1,
+        )
+        negative_pool_size = (
+            len({left for left, _ in all_positives})
+            * len({right for _, right in all_positives})
+            - len(all_positives)
+        )
+        negative_source = 'uniform_unobserved_v2'
+    elif negative_path:
         standard_negatives, negative_pool_size = reservoir_sample_pairs(
             negative_path,
             len(selected_positives),
@@ -209,6 +231,11 @@ def load_dataset(name, positive_path, args, output_dir, dataset_index):
         read_incidence(pd_path, node_column=0, edge_column=1),
         node_universe=protein_universe,
     )
+    role_normalization = 'raw_log_statistics'
+    if args.audit_version == 'v2':
+        compound_role = empirical_percentile_roles(compound_role)
+        protein_role = empirical_percentile_roles(protein_role)
+        role_normalization = 'within_dataset_empirical_percentile'
 
     cp_compounds = sorted({left for left, _ in all_positives})
     cp_proteins = sorted({right for _, right in all_positives})
@@ -240,8 +267,19 @@ def load_dataset(name, positive_path, args, output_dir, dataset_index):
         np.ones(len(matched_positives), dtype=np.int32),
         np.zeros(len(matched_negatives), dtype=np.int32),
     ))
-    standard_features = features_for_pairs(compound_role, protein_role, standard_pairs)
-    matched_features = features_for_pairs(compound_role, protein_role, matched_pairs)
+    percentile_degree = args.audit_version == 'v2'
+    standard_features = features_for_pairs(
+        compound_role,
+        protein_role,
+        standard_pairs,
+        percentile_degree=percentile_degree,
+    )
+    matched_features = features_for_pairs(
+        compound_role,
+        protein_role,
+        matched_pairs,
+        percentile_degree=percentile_degree,
+    )
 
     positive_compounds = [left for left, _ in selected_positives]
     positive_proteins = [right for _, right in selected_positives]
@@ -262,7 +300,7 @@ def load_dataset(name, positive_path, args, output_dir, dataset_index):
     )
 
     input_files = [positive_path, hc_path, pd_path]
-    if negative_path:
+    if negative_path and args.audit_version == 'v1':
         input_files.append(negative_path)
     return {
         'name': name,
@@ -277,6 +315,8 @@ def load_dataset(name, positive_path, args, output_dir, dataset_index):
             'hc_file': str(hc_path),
             'pd_file': str(pd_path),
             'negative_source': negative_source,
+            'audit_version': args.audit_version,
+            'role_normalization': role_normalization,
             'input_sha256': {str(path): sha256_file(path) for path in input_files},
             'all_positive_pairs': len(all_positives),
             'selected_positive_pairs': len(selected_positives),
@@ -359,6 +399,7 @@ def markdown_report(report):
         '',
         '**%s**' % report['decision'],
         '',
+        '- 审计版本：`%s`。' % report['configuration']['audit_version'],
         '- 角色特征仅来自 H-C/P-D 侧超图，不使用 C-P degree、PageRank 或测试标签。',
         '- 每轮使用三个源数据库拟合容量受限线性 probe，第四个数据库只做外部评价。',
         '- isolated 实体保留为零结构角色并设置 support 指示位，不因侧关系缺失而删除。',
@@ -439,7 +480,12 @@ def main():
     args = parse_args()
     if args.max_positive_pairs <= 0:
         raise ValueError('--max-positive-pairs must be positive.')
-    output_dir = (REPOSITORY_ROOT / args.output_dir).resolve()
+    output_value = args.output_dir or (
+        'results/side_hypergraph_role_dg/frozen_role_seed2026'
+        if args.audit_version == 'v1'
+        else 'results/side_hypergraph_role_dg/frozen_role_percentile_uniform_seed2026'
+    )
+    output_dir = (REPOSITORY_ROOT / output_value).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     datasets = {}
