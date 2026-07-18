@@ -10,7 +10,8 @@
 
 ```bash
 python tools/audit_multidataset_attributes.py \
-  --entity-mapping 'SymMap2.0=results/symmap_official_alignment'
+  --entity-mapping 'SymMap2.0=results/symmap_official_alignment' \
+  --alignment-root results/multidataset_attributes
 ```
 
 本地机器可读结果位于：
@@ -26,7 +27,7 @@ results/multidataset_attribute_coverage/report.md
 |---|---:|---:|---|---:|---:|---:|---:|
 | TCM-Suite | 1,187 | 7,258 | 无实体映射 | 0% | 0% | 0% | 0% |
 | TCMSP | 6,929 | 1,748 | TCMSP 页面查询 ID | 100% | 100% | 0% | 0% |
-| SymMap2.0 | 1,618 | 4,027 | 官方 V2 精确对齐 | 100% | 100% | 0% | 0% |
+| SymMap2.0 | 1,618 | 4,027 | 官方 V2 精确对齐 | 100% | 100% | 65.27% | 97.91% |
 | ETCM2.0_core_mention10 | 9,519 | 509 | 生物学元数据 | 100% | 100% | 0% | 0% |
 
 总体判定：
@@ -35,22 +36,22 @@ results/multidataset_attribute_coverage/report.md
 pending_cross_dataset_enrichment
 ```
 
-TCMSP 的 `*_id_all.csv` 中第一列 ID 可作为官方网站 molecule/target 页面的查询键，第二列是预处理生成的连续矩阵编号；既有候选核验已从页面返回 Molecule ID、Target ID、InChIKey、PubChem CID 和 DrugBank target 信息，因此 TCMSP 记为“可外部补全”。SymMap2.0 已使用官方 V2 SMIT/SMTT 文件完成 100% 精确 ID 对齐，其中 C-P 使用成分的 PubChem 覆盖为 `63.78%`，蛋白 UniProt/Ensembl 覆盖为 `25.23%/97.94%`。ETCM2.0 具备化合物名称、TCMIP ID、分子式和 UniProt accession。三个库均具备继续补全的来源标识，但仓库中仍没有达到门槛的批量 SMILES 或蛋白序列文件；TCM-Suite 仍没有实体映射。
+TCMSP 的 `*_id_all.csv` 中第一列 ID 可作为官方网站 molecule/target 页面的查询键，第二列是预处理生成的连续矩阵编号；既有候选核验已从页面返回 Molecule ID、Target ID、InChIKey、PubChem CID 和 DrugBank target 信息，因此 TCMSP 记为“可外部补全”。SymMap2.0 已使用官方 V2 SMIT/SMTT 文件完成 100% 精确 ID 对齐，并完成第一轮 PubChem/UniProt 属性补全。ETCM2.0 具备化合物名称、TCMIP ID、分子式和 UniProt accession。三个库均具备继续补全的来源标识，但当前只有 SymMap 已生成批量标准属性文件，且其 SMILES 尚未达到 70%；TCM-Suite 仍没有实体映射。
 
-因此，当前已经满足“三库共享 Pilot”的映射前提，但尚未满足实际属性覆盖前提。此时直接实现模型仍会把“可查询标识”误当成“可用模态”，必须先完成 TCMSP、SymMap2.0 和 ETCM2.0 的标准化属性补全。
+因此，当前已经满足“三库共享 Pilot”的映射前提，但尚未满足实际属性覆盖前提。SymMap2.0 的蛋白序列覆盖率为 97.91%，可核验 SMILES 的分子式确认率为 590/619（95.32%），两项已通过门槛；SMILES 覆盖率为 65.27%，距 70% 还差 77 个成分。TCMSP 和 ETCM2.0 仍未完成批量属性补全，不能提前实现共享多模态模型。
 
 ### 2.1 上游发布文件初查
 
 HDCTI 论文的数据可用性声明只指向[作者 GitHub 仓库](https://github.com/tong87-bio/HDCTI)。该仓库当前发布的数据文件与本地清单一致，重新下载仓库本身不能补齐属性。进一步从 [SymMap 官方下载页](https://www.symmap.org/download/)取得 V2 SMIT/SMTT 后，确认本地 C-P 实体 ID 可与官方 `Mol_id/Gene_id` 精确对齐；TCMSP 第一列 ID 也可用于官网页面查询。当前上游映射缺口只剩 TCM-Suite。
 
-后续重点从“恢复 SymMap 命名空间”转为“三库属性补全”：SymMap 按 PubChem、Ensembl 和 UniProt 补全；TCMSP 批量验证页面查询键；ETCM 按 TCMIP/名称/分子式与 UniProt 补全。若上游版本与论文抓取时间不一致，继续记录版本、文件哈希和冲突，不能静默覆盖。
+后续重点从“恢复 SymMap 命名空间”转为“三库属性补全”：先处理 `results/symmap_attribute_enrichment/review/compound_review_queue.csv`，使 SymMap SMILES 再增加至少 77 个；随后批量验证 TCMSP 页面查询键，并按 TCMIP/名称/分子式与 UniProt 补全 ETCM。若上游版本与论文抓取时间不一致，继续记录版本、文件哈希和冲突，不能静默覆盖。
 
 ## 3. 共享主模型门槛
 
 在实现多模态主模型前固定以下门槛：
 
 * 单数据集 SMILES 覆盖率至少 70%；
-* 已映射 SMILES 的分子式确认率至少 95%；
+* 可核验 SMILES 的分子式确认率至少 95%，缺失源分子式的记录不进入分母；
 * 单数据集蛋白序列覆盖率至少 95%；
 * 至少三个数据集同时满足上述门槛。
 
@@ -71,7 +72,7 @@ python tools/audit_multidataset_attributes.py \
   --alignment-root <alignment-root>
 ```
 
-只有总体判定变为 `supports_cross_dataset_multimodal_pilot`，才允许把多模态作为共享模型创新。
+只有总体判定变为 `supports_cross_dataset_multimodal_pilot`，才允许把多模态作为共享模型创新。当前 SymMap 的第一批人工审查目标为 102 条，其中包含 77 条覆盖缺口和 25 条失败缓冲；已有 SMILES 的分子式冲突另行审查，不计入覆盖补全数量。
 
 ## 4. 后续路线更新
 

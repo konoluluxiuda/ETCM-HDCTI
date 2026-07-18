@@ -24,6 +24,10 @@ UNIPROT_PATTERN = re.compile(
     r"[A-NR-Z][0-9](?:[A-Z][A-Z0-9]{2}[0-9]){1,2})$"
 )
 TRUE_VALUES = {"1", "true", "yes", "y", "match", "matched"}
+FORMULA_VERIFIED_VALUES = TRUE_VALUES | {
+    "exact", "composition_equivalent", "composition_match_charge_diff"
+}
+FORMULA_MISMATCH_VALUES = {"0", "false", "no", "n", "mismatch"}
 
 
 def parse_args():
@@ -397,13 +401,25 @@ def actual_attribute_audit(
     compounds, compound_sha = read_attribute_rows(compound_path, compound_ids)
     proteins, protein_sha = read_attribute_rows(protein_path, protein_ids)
     smiles_ids = set()
-    formula_match_ids = set()
+    formula_verified_ids = set()
+    formula_mismatch_ids = set()
+    formula_unavailable_ids = set()
     for entity_id, row in compounds.items():
         if any(nonempty(row.get(column)) for column in (
                 "canonical_smiles", "isomeric_smiles", "smiles")):
             smiles_ids.add(entity_id)
-        if normalize_text(row.get("formula_match")) in TRUE_VALUES:
-            formula_match_ids.add(entity_id)
+        formula_status = normalize_text(row.get("formula_match"))
+        if formula_status in FORMULA_VERIFIED_VALUES:
+            formula_verified_ids.add(entity_id)
+        elif formula_status in FORMULA_MISMATCH_VALUES:
+            formula_mismatch_ids.add(entity_id)
+        else:
+            formula_unavailable_ids.add(entity_id)
+    checkable_formula_ids = formula_verified_ids | formula_mismatch_ids
+    verified_smiles_ids = smiles_ids & formula_verified_ids
+    checkable_smiles_ids = smiles_ids & checkable_formula_ids
+    mismatch_smiles_ids = smiles_ids & formula_mismatch_ids
+    unavailable_smiles_ids = smiles_ids & formula_unavailable_ids
     sequence_ids = {
         entity_id for entity_id, row in proteins.items()
         if nonempty(row.get("sequence"))
@@ -417,9 +433,16 @@ def actual_attribute_audit(
         "protein_rows": len(proteins),
         "smiles_entities": len(smiles_ids),
         "smiles_coverage": ratio(len(smiles_ids), len(compound_ids)),
-        "formula_match_entities": len(smiles_ids & formula_match_ids),
+        "formula_match_entities": len(verified_smiles_ids),
         "formula_match_rate_among_smiles": ratio(
-            len(smiles_ids & formula_match_ids), len(smiles_ids)
+            len(verified_smiles_ids), len(smiles_ids)
+        ),
+        "formula_checkable_entities": len(checkable_smiles_ids),
+        "formula_verified_entities": len(verified_smiles_ids),
+        "formula_mismatch_entities": len(mismatch_smiles_ids),
+        "formula_unavailable_entities": len(unavailable_smiles_ids),
+        "formula_verification_rate_among_checkable": ratio(
+            len(verified_smiles_ids), len(checkable_smiles_ids)
         ),
         "sequence_entities": len(sequence_ids),
         "sequence_coverage": ratio(len(sequence_ids), len(protein_ids)),
@@ -429,7 +452,7 @@ def actual_attribute_audit(
 def dataset_decision(local, actual, thresholds):
     actual_ready = (
         actual["smiles_coverage"] >= thresholds["minimum_smiles_coverage"]
-        and actual["formula_match_rate_among_smiles"]
+        and actual["formula_verification_rate_among_checkable"]
         >= thresholds["minimum_formula_match"]
         and actual["sequence_coverage"] >= thresholds["minimum_sequence_coverage"]
     )
@@ -535,19 +558,22 @@ def build_markdown(report):
         "",
         "**%s**" % report["decision"],
         "",
-        "| 数据集 | C | P | 映射类型 | 化合物生物标识 | 蛋白生物标识 | SMILES | Sequence | 判定 |",
-        "|---|---:|---:|---|---:|---:|---:|---:|---|",
+        "| 数据集 | C | P | 映射类型 | 化合物生物标识 | 蛋白生物标识 | SMILES | 分子式核验 | Sequence | 判定 |",
+        "|---|---:|---:|---|---:|---:|---:|---:|---:|---|",
     ]
     for row in report["datasets"]:
         local = row["local_mapping"]
         actual = row["actual_attributes"]
         lines.append(
-            "| %s | %d | %d | %s | %.2f%% | %.2f%% | %.2f%% | %.2f%% | %s |" % (
+            "| %s | %d | %d | %s | %.2f%% | %.2f%% | %.2f%% | %.2f%% (%d/%d) | %.2f%% | %s |" % (
                 row["name"], row["compound_entities"], row["protein_entities"],
                 local["mapping_type"],
                 100.0 * local["compound_biological_lookup_coverage"],
                 100.0 * local["protein_biological_lookup_coverage"],
                 100.0 * actual["smiles_coverage"],
+                100.0 * actual["formula_verification_rate_among_checkable"],
+                actual["formula_verified_entities"],
+                actual["formula_checkable_entities"],
                 100.0 * actual["sequence_coverage"], row["decision"]
             )
         )
@@ -557,7 +583,7 @@ def build_markdown(report):
         "",
         "- 单数据集 SMILES 覆盖率 >= %.0f%%。" % (
             100.0 * report["thresholds"]["minimum_smiles_coverage"]),
-        "- 已映射 SMILES 的分子式确认率 >= %.0f%%。" % (
+        "- 可核验 SMILES 的分子式确认率 >= %.0f%%（缺失源分子式不进入分母）。" % (
             100.0 * report["thresholds"]["minimum_formula_match"]),
         "- 单数据集蛋白序列覆盖率 >= %.0f%%。" % (
             100.0 * report["thresholds"]["minimum_sequence_coverage"]),

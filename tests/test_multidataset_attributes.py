@@ -103,6 +103,46 @@ class MultiDatasetAttributeAuditTest(unittest.TestCase):
         self.assertEqual(report["decision"], "supports_cross_dataset_multimodal_pilot")
         self.assertEqual(report["ready_datasets"], 3)
 
+    def test_formula_verification_excludes_unavailable_source_formulas(self):
+        dataset = self.make_cp("formula_audit")
+        alignment = self.root / "alignment"
+        target = alignment / "formula_audit"
+        target.mkdir(parents=True)
+        with (target / "compound_attributes.csv").open(
+                "w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=[
+                "entity_id", "canonical_smiles", "formula_match"
+            ])
+            writer.writeheader()
+            writer.writerows([
+                {"entity_id": 1, "canonical_smiles": "CCO",
+                 "formula_match": "composition_equivalent"},
+                {"entity_id": 2, "canonical_smiles": "CCCO",
+                 "formula_match": "not_available"},
+            ])
+        with (target / "protein_attributes.csv").open(
+                "w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=[
+                "entity_id", "uniprot_accession", "sequence"
+            ])
+            writer.writeheader()
+            writer.writerows([
+                {"entity_id": 10, "uniprot_accession": "P00519",
+                 "sequence": "AAAA"},
+                {"entity_id": 11, "uniprot_accession": "Q04771",
+                 "sequence": "BBBB"},
+            ])
+
+        report = audit_datasets(
+            {"formula_audit": dataset}, alignment_root=alignment
+        )
+        actual = report["datasets"][0]["actual_attributes"]
+
+        self.assertEqual(actual["formula_checkable_entities"], 1)
+        self.assertEqual(actual["formula_verified_entities"], 1)
+        self.assertEqual(actual["formula_unavailable_entities"], 1)
+        self.assertEqual(actual["formula_verification_rate_among_checkable"], 1.0)
+
     def test_tcmsp_query_labels_are_biological_lookup_ids(self):
         dataset = self.make_cp("tcmsp")
         (dataset / "compound_id_all.csv").write_text(
