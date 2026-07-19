@@ -153,6 +153,37 @@ def resolve_support_router(config):
     }
 
 
+def resolve_inductive_context(config):
+    enabled = _config_bool(config, 'inductive.context', False)
+    suppress_base = _config_bool(
+        config, 'inductive.context.suppress.base.zero.support', True
+    )
+    self_excluded = _config_bool(
+        config, 'inductive.context.self.excluded', True
+    )
+    if enabled and not (suppress_base or self_excluded):
+        raise ValueError(
+            'inductive.context requires base suppression, self-excluded '
+            'context, or both.'
+        )
+    return {
+        'enabled': enabled,
+        'suppress_base_zero_support': enabled and suppress_base,
+        'self_excluded': enabled and self_excluded,
+    }
+
+
+def support_decoupled_base_gate(support_degrees, context_available):
+    support_degrees = np.asarray(support_degrees, dtype=np.float64)
+    context_available = np.asarray(context_available, dtype=np.float64)
+    if support_degrees.shape != context_available.shape:
+        raise ValueError(
+            'Support degrees and context availability must have matching shapes.'
+        )
+    suppress = (support_degrees <= 0) & (context_available > 0)
+    return np.where(suppress, 0.0, 1.0).astype(np.float32)
+
+
 def resolve_hyperedge_attention(config):
     enabled = _config_bool(config, 'hyperedge.attention', False)
     mode = (
@@ -422,7 +453,8 @@ def context_interaction_pair_scores(
         pair_compound_contexts=None,
         residual_compound_contexts=None,
         target_residual_weight=None,
-        herb_protein_scale=None):
+        herb_protein_scale=None,
+        base_score_scale=None):
     compound_indices = np.asarray(compound_indices, dtype=np.int64)
     protein_indices = np.asarray(protein_indices, dtype=np.int64)
     if compound_indices.shape != protein_indices.shape:
@@ -449,6 +481,15 @@ def context_interaction_pair_scores(
     scores = pair_decoder_scores(
         compounds, proteins, decoder_type=decoder_type, decoder_weights=decoder_weights
     )
+    if base_score_scale is not None:
+        base_score_scale = np.asarray(
+            base_score_scale, dtype=np.float64
+        ).reshape(-1)
+        if base_score_scale.shape != scores.shape:
+            raise ValueError(
+                'Base-score scales must match the number of pairs.'
+            )
+        scores *= base_score_scale
     if enabled_terms.get('compound_disease', False):
         scores += np.sum(compounds * disease_contexts * compound_disease_weight, axis=1)
     if enabled_terms.get('herb_protein', False):

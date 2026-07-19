@@ -16,8 +16,10 @@ from util.model_components import (
     resolve_context_mask_training,
     resolve_counterfactual_context,
     resolve_herb_context_attention,
+    resolve_inductive_context,
     resolve_negative_sampling,
     resolve_pair_decoder,
+    support_decoupled_base_gate,
     target_conditioned_herb_contexts,
 )
 
@@ -34,6 +36,73 @@ class DummyConf(object):
 
 
 class ModelComponentsTest(unittest.TestCase):
+    def test_inductive_context_defaults_off_and_supports_orthogonal_switches(self):
+        self.assertEqual(resolve_inductive_context(DummyConf({})), {
+            'enabled': False,
+            'suppress_base_zero_support': False,
+            'self_excluded': False,
+        })
+        base_only = resolve_inductive_context(DummyConf({
+            'inductive.context': 'True',
+            'inductive.context.suppress.base.zero.support': 'True',
+            'inductive.context.self.excluded': 'False',
+        }))
+        self.assertEqual(base_only, {
+            'enabled': True,
+            'suppress_base_zero_support': True,
+            'self_excluded': False,
+        })
+        excluded_only = resolve_inductive_context(DummyConf({
+            'inductive.context': 'True',
+            'inductive.context.suppress.base.zero.support': 'False',
+            'inductive.context.self.excluded': 'True',
+        }))
+        self.assertEqual(excluded_only, {
+            'enabled': True,
+            'suppress_base_zero_support': False,
+            'self_excluded': True,
+        })
+        with self.assertRaisesRegex(ValueError, 'requires base suppression'):
+            resolve_inductive_context(DummyConf({
+                'inductive.context': 'True',
+                'inductive.context.suppress.base.zero.support': 'False',
+                'inductive.context.self.excluded': 'False',
+            }))
+
+    def test_support_decoupled_base_gate_suppresses_only_supported_cold_context(self):
+        gates = support_decoupled_base_gate(
+            support_degrees=[0, 0, 1, 4],
+            context_available=[1, 0, 1, 0],
+        )
+        np.testing.assert_array_equal(gates, [0.0, 1.0, 1.0, 1.0])
+
+    def test_pair_scores_can_suppress_only_the_base_decoder_term(self):
+        compounds = np.asarray([[1.0, 2.0]], dtype=np.float32)
+        proteins = np.asarray([[3.0, 4.0]], dtype=np.float32)
+        herb_contexts = np.asarray([[0.5, 0.25]], dtype=np.float32)
+        disease_contexts = np.zeros((1, 2), dtype=np.float32)
+        zero = np.zeros(2, dtype=np.float32)
+        herb_weight = np.asarray([2.0, 3.0], dtype=np.float32)
+        score = context_interaction_pair_scores(
+            compounds,
+            proteins,
+            herb_contexts,
+            disease_contexts,
+            [0],
+            [0],
+            zero,
+            herb_weight,
+            zero,
+            enabled_terms={
+                'compound_disease': False,
+                'herb_protein': True,
+                'herb_disease': False,
+            },
+            base_score_scale=[0.0],
+        )
+        expected = np.sum(herb_contexts[0] * proteins[0] * herb_weight)
+        np.testing.assert_allclose(score, [expected])
+
     def test_counterfactual_context_defaults_off_and_validates_pilot_settings(self):
         self.assertEqual(resolve_counterfactual_context(DummyConf({})), {
             'enabled': False,

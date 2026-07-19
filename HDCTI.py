@@ -32,8 +32,10 @@ from util.model_components import (
     resolve_global_token_attention,
     resolve_hyperedge_attention,
     resolve_herb_context_attention,
+    resolve_inductive_context,
     resolve_pair_decoder,
     resolve_support_router,
+    support_decoupled_base_gate,
     target_conditioned_herb_contexts,
 )
 from util.support_router import (
@@ -209,6 +211,10 @@ class HDCTI(herbRecommender):
         hc_edge_degrees = np.bincount(
             hc_attention_edge_ids, minlength=self.num_herbs
         ).astype(np.float32)
+        self.compound_inductive_context_available = np.asarray([
+            any(hc_edge_degrees[herb_index] > 1 for herb_index in herb_indices)
+            for herb_indices in self.compound_herbs
+        ], dtype=np.float32)
         hc_specificity_prior = hyperedge_specificity_prior(
             hc_edge_degrees, self.num_compounds
         )
@@ -285,6 +291,7 @@ class HDCTI(herbRecommender):
         self.support_router = resolve_support_router(self.config)
         self.hyperedge_attention = resolve_hyperedge_attention(self.config)
         self.global_token_attention = resolve_global_token_attention(self.config)
+        self.inductive_context = resolve_inductive_context(self.config)
         if (
             self.hyperedge_attention['enabled']
             and self.global_token_attention['enabled']
@@ -314,6 +321,53 @@ class HDCTI(herbRecommender):
             if self.data.pseudo_cold_info is None:
                 raise ValueError(
                     'Support routing requires deterministic pseudo-cold graph masking.'
+                )
+        if self.inductive_context['enabled']:
+            if getattr(self.data, 'protocol', 'legacy') != 'strict':
+                raise ValueError(
+                    'Inductive context scoring requires experiment.protocol=strict.'
+                )
+            if self.herb_context_attention['mode'] != 'static':
+                raise ValueError(
+                    'Inductive context scoring requires static Hctx-P.'
+                )
+            if self.context_terms != {
+                    'compound_disease': False,
+                    'herb_protein': True,
+                    'herb_disease': False}:
+                raise ValueError(
+                    'Inductive context scoring requires HerbOnly context terms.'
+                )
+            if (
+                self.counterfactual_context['enabled']
+                and self.inductive_context['self_excluded']
+            ):
+                raise ValueError(
+                    'CHCR cannot be combined with the rejected self-excluded '
+                    'H-C readout.'
+                )
+            if self.context_mask_training['enabled']:
+                raise ValueError(
+                    'Inductive context scoring cannot be combined with CMIT.'
+                )
+            if self.support_router['enabled']:
+                raise ValueError(
+                    'Inductive context scoring cannot use the support router.'
+                )
+            if self.hyperedge_attention['enabled']:
+                raise ValueError(
+                    'Self-excluded H-C readout requires standard hypergraph propagation.'
+                )
+            if self.global_token_attention['enabled']:
+                raise ValueError(
+                    'Inductive context scoring cannot use HILGA.'
+                )
+            if (
+                not self.config.contains('attention.max.nodes')
+                or int(self.config['attention.max.nodes']) != 0
+            ):
+                raise ValueError(
+                    'Inductive context scoring requires attention.max.nodes=0.'
                 )
         if self.hyperedge_attention['enabled']:
             print(
@@ -473,6 +527,16 @@ class HDCTI(herbRecommender):
                 )
             )
         print('Pair decoder: %s' % self.pair_decoder['type'])
+        if self.inductive_context['enabled']:
+            print(
+                'Support-decoupled inductive scoring: base_zero_support=%s '
+                'self_excluded_hc=%s fallback_base_without_context=on.' % (
+                    'on' if self.inductive_context[
+                        'suppress_base_zero_support'
+                    ] else 'off',
+                    'on' if self.inductive_context['self_excluded'] else 'off',
+                )
+            )
         attention_size = 64
         self.compound_attention_weights = []
         self.protein_attention_weights = []
@@ -857,6 +921,9 @@ class HDCTI(herbRecommender):
         hc_active_edge_mask_tf = tf.constant(
             (hc_edge_degrees > 0).astype(np.float32), dtype=tf.float32
         )
+        hc_edge_degrees_tf = tf.constant(
+            hc_edge_degrees, dtype=tf.float32
+        )
         pd_attention_edge_ids_tf = tf.constant(
             pd_attention_ids['forward_edge_ids'], dtype=tf.int64
         )
@@ -885,8 +952,40 @@ class HDCTI(herbRecommender):
         all_protein_embeddings = [protein_embeddings]
         all_hc_embeddings = []
         all_pd_embeddings = []
+        all_hc_edge_inputs = []
+        all_self_excluded_hc_contexts = []
+
+        def direct_self_excluded_hc_context(
+                node_embeddings, edge_embeddings, layer):
+            incidence_degrees = tf.gather(
+                hc_edge_degrees_tf, hc_attention_edge_ids_tf
+            )
+            incidence_nodes = tf.gather(
+                node_embeddings, hc_attention_node_ids_tf
+            )
+            incidence_edges = tf.gather(
+                edge_embeddings, hc_attention_edge_ids_tf
+            )
+            denominators = tf.maximum(incidence_degrees - 1.0, 1.0)
+            excluded_edges = (
+                incidence_edges * tf.expand_dims(incidence_degrees, axis=1)
+                - incidence_nodes
+            ) / tf.expand_dims(denominators, axis=1)
+            eligible = tf.cast(incidence_degrees > 1.0, tf.float32)
+            excluded_edges = tf.math.l2_normalize(
+                excluded_edges, axis=1
+            ) * tf.expand_dims(eligible, axis=1)
+            return tf.math.unsorted_segment_sum(
+                excluded_edges,
+                hc_attention_node_ids_tf,
+                self.num_compounds,
+                name='hc_self_excluded_context_layer_%d' % layer,
+            )
 
         for i in range(self.n_layer):
+            # Retain the exact node-side inputs used by H_e at each layer. The
+            # stacked tensor is diagnostic-only and introduces no new variable.
+            all_hc_edge_inputs.append(compound_embeddings)
             if self.hyperedge_attention['hc_enabled']:
                 new_hc_edge, new_compound_embeddings = (
                     factorized_hyperedge_propagation(
@@ -913,6 +1012,12 @@ class HDCTI(herbRecommender):
                     H_n,
                     new_hc_edge,
                     name='hc_edge_to_node_layer_%d' % (i + 1),
+                )
+            if self.inductive_context['self_excluded']:
+                all_self_excluded_hc_contexts.append(
+                    direct_self_excluded_hc_context(
+                        compound_embeddings, new_hc_edge, i + 1
+                    )
                 )
             if self.hyperedge_attention['pd_enabled']:
                 new_pd_edge, new_protein_embeddings = (
@@ -1033,6 +1138,9 @@ class HDCTI(herbRecommender):
 
         self.final_hcedge=hc_edge
         self.final_pdedge=pd_edge
+        self.final_hc_edge_inputs = tf.stack(
+            all_hc_edge_inputs, axis=0, name='hc_edge_layer_inputs'
+        )
 
         # Aggregate only the candidate's incident H-C/P-D hyperedges. No H-D or C-P labels are used here.
         self.final_compound_context = tf.math.l2_normalize(
@@ -1040,6 +1148,18 @@ class HDCTI(herbRecommender):
                 H_n, self.final_hcedge, name='hc_candidate_context'
             ),
             axis=1,
+        )
+        self.final_self_excluded_compound_context = None
+        if self.inductive_context['self_excluded']:
+            self.final_self_excluded_compound_context = tf.math.l2_normalize(
+                tf.reduce_sum(all_self_excluded_hc_contexts, axis=0),
+                axis=1,
+                name='hc_self_excluded_candidate_context',
+            )
+        self.final_scoring_compound_context = (
+            self.final_self_excluded_compound_context
+            if self.inductive_context['self_excluded']
+            else self.final_compound_context
         )
         self.final_protein_context = tf.math.l2_normalize(
             tf.sparse_tensor_dense_matmul(
@@ -1052,8 +1172,33 @@ class HDCTI(herbRecommender):
         # self.v_embedding = tf.nn.embedding_lookup(self.final_pdedge, self.v_idx)
         self.u_embedding = tf.nn.embedding_lookup(self.final_uembedding, self.u_idx)
         self.v_embedding = tf.nn.embedding_lookup(self.final_iembedding, self.v_idx)
-        self.u_context_embedding = tf.nn.embedding_lookup(self.final_compound_context, self.u_idx)
+        self.u_context_embedding = tf.nn.embedding_lookup(
+            self.final_scoring_compound_context, self.u_idx
+        )
         self.v_context_embedding = tf.nn.embedding_lookup(self.final_protein_context, self.v_idx)
+        self.inductive_base_gate = None
+        if self.inductive_context['suppress_base_zero_support']:
+            pair_support_degrees = tf.gather(
+                tf.constant(
+                    self.compound_cp_support_degrees, dtype=tf.float32
+                ),
+                self.u_idx,
+            )
+            pair_inductive_context_available = tf.gather(
+                tf.constant(
+                    self.compound_inductive_context_available,
+                    dtype=tf.float32,
+                ),
+                self.u_idx,
+            )
+            suppress_base = tf.cast(
+                tf.logical_and(
+                    pair_support_degrees <= 0,
+                    pair_inductive_context_available > 0,
+                ),
+                tf.float32,
+            )
+            self.inductive_base_gate = 1.0 - suppress_base
         self.support_context_gate = None
         if self.support_router['enabled']:
             pair_support_degrees = tf.gather(
@@ -1190,6 +1335,8 @@ class HDCTI(herbRecommender):
         logits = self.buildBasePairLogits(
             compound_embedding, protein_embedding
         )
+        if self.inductive_context['suppress_base_zero_support']:
+            logits *= self.inductive_base_gate
         if self.context_terms['compound_disease']:
             logits += tf.reduce_sum(
                 compound_embedding * self.v_context_embedding
@@ -1230,6 +1377,15 @@ class HDCTI(herbRecommender):
             self.compound_cp_support_degrees[compound_indices],
             self.compound_context_available[compound_indices],
             slope,
+        )
+
+    def inductiveBaseGateValues(self, compound_indices):
+        if not self.inductive_context['suppress_base_zero_support']:
+            return None
+        compound_indices = np.asarray(compound_indices, dtype=np.int64)
+        return support_decoupled_base_gate(
+            self.compound_cp_support_degrees[compound_indices],
+            self.compound_inductive_context_available[compound_indices],
         )
 
     def buildContextMaskedTrainingLoss(self):
@@ -1301,19 +1457,20 @@ class HDCTI(herbRecommender):
         )
         return weighted_loss, active_count, active_mean_margin
 
-    def fetchModelState(self):
-        return self.sess.run(
-            {
-                'compound': self.final_uembedding,
-                'protein': self.final_iembedding,
-                'compound_context': self.final_compound_context,
-                'protein_context': self.final_protein_context,
-                'herb_edge': self.final_hcedge,
-                'disease_edge': self.final_pdedge,
-                'weights': self.weights,
-            },
-            feed_dict={self.isTraining: 0},
-        )
+    def fetchModelState(self, include_context_audit=False):
+        fetches = {
+            'compound': self.final_uembedding,
+            'protein': self.final_iembedding,
+            'compound_context': self.final_scoring_compound_context,
+            'inclusive_compound_context': self.final_compound_context,
+            'protein_context': self.final_protein_context,
+            'herb_edge': self.final_hcedge,
+            'disease_edge': self.final_pdedge,
+            'weights': self.weights,
+        }
+        if include_context_audit:
+            fetches['hc_edge_inputs'] = self.final_hc_edge_inputs
+        return self.sess.run(fetches, feed_dict={self.isTraining: 0})
 
     def targetConditionedHerbContexts(
             self, state, compound_indices, protein_indices):
@@ -1407,6 +1564,9 @@ class HDCTI(herbRecommender):
                 target_residual_weight=weights.get('context_target_herb_residual'),
                 herb_protein_scale=self.supportContextGateValues(
                     state, compound_indices
+                ),
+                base_score_scale=self.inductiveBaseGateValues(
+                    compound_indices
                 ),
             )
         scores = 1.0 / (1.0 + np.exp(-np.clip(logits, -50, 50)))
@@ -1967,6 +2127,9 @@ class HDCTI(herbRecommender):
             herb_protein_scale=self.supportContextGateValues(
                 state, compound_indices
             ),
+            base_score_scale=self.inductiveBaseGateValues(
+                compound_indices
+            ),
         )
 
     def predictForRanking(self):
@@ -1995,6 +2158,12 @@ class HDCTI(herbRecommender):
             scores = (self.u.dot(self.weight['decoder_bilinear'])).dot(self.i.transpose())
         else:
             raise ValueError('Unsupported pair decoder: %s' % decoder_type)
+
+        if self.inductive_context['suppress_base_zero_support']:
+            base_gates = self.inductiveBaseGateValues(
+                np.arange(self.num_compounds, dtype=np.int64)
+            )
+            scores *= base_gates[:, None]
 
         if self.context_terms['compound_disease']:
             scores += (self.u * self.weight['context_compound_disease']).dot(

@@ -184,7 +184,14 @@ def weight_audit(values):
     }
 
 
-def restore_snapshot(tf, HDCTI, set_global_seed, protocol, checkpoint_prefix, fold):
+def restore_snapshot(
+        tf,
+        HDCTI,
+        set_global_seed,
+        protocol,
+        checkpoint_prefix,
+        fold,
+        include_context_audit=False):
     tf.reset_default_graph()
     conf = protocol['conf']
     base_seed = int(conf['random.seed']) if conf.contains('random.seed') else 2026
@@ -223,7 +230,7 @@ def restore_snapshot(tf, HDCTI, set_global_seed, protocol, checkpoint_prefix, fo
 
     saver = tf.train.Saver(var_list=graph_variables)
     saver.restore(model.sess, str(checkpoint_prefix))
-    state = model.fetchModelState()
+    state = model.fetchModelState(include_context_audit=include_context_audit)
     snapshot = {
         'compound': state['compound'],
         'protein': state['protein'],
@@ -240,7 +247,15 @@ def restore_snapshot(tf, HDCTI, set_global_seed, protocol, checkpoint_prefix, fo
         'pair_decoder': dict(model.pair_decoder),
         'num_compounds': model.num_compounds,
         'num_proteins': model.num_proteins,
+        'support_context_gate': model.supportContextGateValues(
+            state, np.arange(model.num_compounds, dtype=np.int64)
+        ),
+        'inductive_base_gate': model.inductiveBaseGateValues(
+            np.arange(model.num_compounds, dtype=np.int64)
+        ),
     }
+    if include_context_audit:
+        snapshot['hc_edge_inputs'] = state['hc_edge_inputs']
     model.sess.close()
     return snapshot
 
@@ -269,6 +284,10 @@ def score_snapshot(snapshot, records, include_context):
         decoder_type=snapshot['pair_decoder']['type'],
         decoder_weights=snapshot['weights'],
     )
+    base_score_scale = snapshot.get('inductive_base_gate')
+    if base_score_scale is not None:
+        base_score_scale = np.asarray(base_score_scale)[compound_indices]
+        base_logits *= base_score_scale
     if not include_context:
         return np.asarray(base_logits, dtype=np.float64), np.asarray(base_logits, dtype=np.float64)
 
@@ -288,6 +307,11 @@ def score_snapshot(snapshot, records, include_context):
         enabled_terms=snapshot['context_terms'],
         decoder_type=snapshot['pair_decoder']['type'],
         decoder_weights=weights,
+        herb_protein_scale=(
+            np.asarray(snapshot['support_context_gate'])[compound_indices]
+            if snapshot.get('support_context_gate') is not None else None
+        ),
+        base_score_scale=base_score_scale,
     )
     return np.asarray(base_logits, dtype=np.float64), np.asarray(total_logits, dtype=np.float64)
 
