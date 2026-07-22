@@ -178,3 +178,30 @@ results/chcr_donor_controls/four_dataset_static_hctxp/results.tsv
 ```
 
 下一步不再修补 donor 规则或继续增加 seed，而是用现有逐 degree-stratum 输出完成 SymMap 失败模式表，并据此限制论文主张：CHCR 是在具备稳定药材上下文支持的数据环境中有效的训练约束，而不是四库无条件成立的普适机制。
+
+## 9. Degree-Stratum 失败模式
+
+使用四库 20 个冻结 `report.json` 的主 `exact_degree` 结果进行描述性聚合，不重新训练、不访问 outer-test，也不新增数据集特定阈值。分层方向一致性继续使用原冻结条件：至少 75% 的可分析 folds 具有正平均 margin。Pair 胜率 0.60 仅作为强度参考，不追加为新的分层通过条件。
+
+| 数据集 | H-C degree 方向不一致 | 训练 C-P degree 方向不一致 | 解释 |
+|---|---|---|---|
+| TCM-Suite | 无 | `1-2`、`3-5` | 药材上下文方向稳定，但低 C-P 训练支持下收益不稳定 |
+| TCMSP | 无 | 无 | 所有可分析区间方向稳定 |
+| SymMap2.0 | `1` | `0`、`1-2` | 同时存在低药材上下文与低 C-P 支持失配 |
+| ETCM2.0 mention10 | 无 | 无 | 所有可分析区间方向稳定 |
+
+SymMap 的 `H-C degree=2-3` 和训练 `C-P degree=3-5` 虽达到 4/5 folds 正 margin，但 pair 加权胜率分别只有 `0.4879` 和 `0.5685`，属于方向多数为正但强度较弱的过渡区间。稳定区间集中在 `H-C degree>=4` 和训练 `C-P degree>=6`。
+
+这一结果将原来的数据库级失败进一步定位为**训练支持度调节的上下文可靠性问题**：Hctx-P/CHCR 不是在所有实体上等强生效。论文可以将其作为适用边界和 SDIS/support-aware 设计动机，但不能在未验证新路由机制前声称已经自动解决该问题。
+
+可复现工具与输出：
+
+```bash
+python tools/summarize_chcr_degree_strata.py
+```
+
+```text
+results/chcr_donor_controls/four_dataset_static_hctxp/degree_strata_analysis/by_fold.tsv
+results/chcr_donor_controls/four_dataset_static_hctxp/degree_strata_analysis/summary.tsv
+results/chcr_donor_controls/four_dataset_static_hctxp/degree_strata_analysis/report.md
+```
