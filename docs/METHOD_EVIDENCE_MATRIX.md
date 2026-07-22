@@ -183,7 +183,8 @@ Herb context 与可解释路径
 | 优先级 | 缺口 | 为什么重要 | 下一动作 |
 |---|---|---|---|
 | 已完成 | 最终 `attention.max.nodes=0` 下四库匹配的 `Strict-HDCTI vs Hctx-P` 普通随机边五折直接消融 | M1 是共享骨干创新，必须有最终统一口径直接证据 | 冻结判定 PASS：macro AUPR `+0.009250`，3/4 数据库不下降且达到逐折方向门槛 |
-| 阻塞，部分完成 | 最终主结果、消融和场景表尚未统一生成 | 容易混用历史 attention、epoch 或 split 口径 | Hctx-P 直接消融配对表已完成；下一步统一 Strict/Hctx-P/CHCR 与 cold-start Hctx-P/SDIS 主表 |
+| 已完成 | 最终主结果、消融和场景表统一生成 | 避免混用历史 attention、epoch 或 split 口径 | 已通过冻结来源与配置哈希生成随机边 Strict/Hctx-P/CHCR、cold-start Hctx-P/SDIS 固定阈值及校准阈值表，见 `FINAL_RESULTS_TABLES.md` |
+| 加强 | 四库统一 cold-start NoContext 完整五折缺失 | 当前仅有单折 Pilot；ETCM 旧五折也不是统一 `attention.max.nodes=0` 口径 | 不阻塞 SDIS 相对匹配 Hctx-P 的直接消融；若终稿需要展示 Hctx-P 的四库 cold-start 绝对贡献，再补四个 NoContext 五折 |
 | 阻塞 | 参数量、单 epoch 时间、推理时间和峰值显存未形成统一表 | 期刊审稿会质疑 CHCR 训练成本与 SDIS 部署代价 | 冻结硬件和 batch，执行轻量复杂度审计 |
 | 阻塞 | ETCM Top-K 案例仍缺最终外部证据闭环 | 数据贡献和中医药解释目前弱于方法实验 | 使用实体映射选取少量高置信候选，记录检索日期与证据等级 |
 | 加强 | 除 ETCM CHCR 外，其他最终配置主要为单训练 seed | fold 方差不能代表初始化稳定性 | 在主表冻结后选择一个代表库补 3 seed，或在局限性中明确披露 |
@@ -202,5 +203,7 @@ Strict-HDCTI + Hctx-P, Hctx-P on
 ```
 
 两组复用了现有 `no_dense_chcr_full` 批次中的 Hctx-P 配置、split manifest、seed、inner-validation、早停和 Dot decoder，只补跑缺失的 NoContext 一侧。最终 AUPR 增量为 TCM-Suite `-0.000255`、TCMSP `+0.011325`、SymMap2.0 `+0.014082`、ETCM2.0 mention10 `+0.011847`，macro `+0.009250`，冻结判定为 **PASS**。下一项任务是生成两种协议的最终统一结果表，而不是继续增加新模型模块。
+
+两种协议的统一结果表现已生成，见 [FINAL_RESULTS_TABLES.md](FINAL_RESULTS_TABLES.md)。生成器 `tools/build_paper_results_tables.py` 校验冻结结果 SHA-256、逐行配置 SHA-256、Strict 协议、split、seed、Dot decoder、`attention.max.nodes=0` 以及校准前后 AUC/AUPR 一致性。主表不使用单折 cold-start NoContext 或旧 attention 口径补齐缺失行。
 
 执行协议、预注册门槛和输出文件见 [HCTX_NO_DENSE_ABLATION.md](HCTX_NO_DENSE_ABLATION.md)。当前实现会在运行前校验四库配置 SHA-256，并只允许 `model.variant`、`context.interaction` 与 `context.herb_protein` 三项不同；完成后自动输出逐折配对结果和 `PASS/NO-GO` 判定。

@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "datasets": [
+    "TCM-Suite",
+    "TCMSP",
+    "SymMap2.0",
+    "ETCM2.0 mention10"
+  ],
+  "random_edge": {
+    "sources": [
+      {
+        "method": "Strict-HDCTI",
+        "variant": "NoContext",
+        "results": "results/batch_runs/no_dense_hctx_ablation_20260722_164221/results.tsv",
+        "sha256": "897711d0a20f6c182dddbf678892ba268a6fb6aceef18fd85b88fc2ff7cbb5dd"
+      },
+      {
+        "method": "Strict-HDCTI + Hctx-P",
+        "variant": "Hctx-P",
+        "results": "results/batch_runs/no_dense_chcr_full_20260717_171403/results.tsv",
+        "sha256": "dad58154867b3628a08431af69c4d9e225eff889d92d761a80d56ab8fb955e35"
+      },
+      {
+        "method": "Strict-HDCTI + Hctx-P + CHCR",
+        "variant": "Hctx-P+CHCR",
+        "results": "results/batch_runs/no_dense_chcr_full_20260717_171403/results.tsv",
+        "sha256": "dad58154867b3628a08431af69c4d9e225eff889d92d761a80d56ab8fb955e35"
+      }
+    ]
+  },
+  "compound_cold_start": {
+    "fixed_results": "results/batch_runs/sdis_full_20260718_212240/results.tsv",
+    "fixed_sha256": "7ff2251f39d50a339f86ad03a86a27035979800432aafbb2e64329f3f75b93b0",
+    "calibrated_results": "results/batch_runs/sdis_full_20260718_212240/calibration/results.tsv",
+    "calibrated_sha256": "416d9182fcbe04938665acc8bcf404c75323f70a038390b829b872a06bb3b931",
+    "methods": [
+      {
+        "method": "Strict-HDCTI + Hctx-P",
+        "variant": "HerbOnly"
+      },
+      {
+        "method": "Strict-HDCTI + Hctx-P + SDIS",
+        "variant": "SDIS"
+      }
+    ]
+  }
+}
