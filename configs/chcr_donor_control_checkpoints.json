@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "protocol": "static_hctxp_pair_stratified_no_dense_chcr_donor_control_v1",
+  "source_batch": "results/batch_runs/no_dense_chcr_full_20260717_171403",
+  "fold_count": 5,
+  "draws": 20,
+  "counterfactual_seed": 42026,
+  "minimum_supported_folds_per_dataset": 4,
+  "minimum_dataset_mean_aupr_drop": 0.001,
+  "minimum_dataset_mean_pair_win_rate": 0.60,
+  "output_dir": "results/chcr_donor_controls/four_dataset_static_hctxp",
+  "datasets": [
+    {
+      "name": "TCM-Suite",
+      "slug": "tcmsuite",
+      "config": "configs/HDCTI_tcmsuite_pair_stratified_herb_only_no_dense_full.conf",
+      "config_sha256": "de8c14948959f7630dccc799fb81881b243d65d50b8a54026baf10b9218f0893",
+      "source_log": "results/batch_runs/no_dense_chcr_full_20260717_171403/01_tcmsuite_herb_only.log",
+      "checkpoints": [
+        {"fold": 1, "path": "saved_model/2026-07-17 17-14-12/hdcti_model.ckpt"},
+        {"fold": 2, "path": "saved_model/2026-07-17 17-14-25/hdcti_model.ckpt"},
+        {"fold": 3, "path": "saved_model/2026-07-17 17-14-42/hdcti_model.ckpt"},
+        {"fold": 4, "path": "saved_model/2026-07-17 17-14-54/hdcti_model.ckpt"},
+        {"fold": 5, "path": "saved_model/2026-07-17 17-15-08/hdcti_model.ckpt"}
+      ]
+    },
+    {
+      "name": "TCMSP",
+      "slug": "tcmsp",
+      "config": "configs/HDCTI_tcmsp_pair_stratified_herb_only_no_dense_full.conf",
+      "config_sha256": "80fc6531dcaa7fbe069f690de8195da003c313d89fa4cc0e395a96d7fc78c79f",
+      "source_log": "results/batch_runs/no_dense_chcr_full_20260717_171403/03_tcmsp_herb_only.log",
+      "checkpoints": [
+        {"fold": 1, "path": "saved_model/2026-07-17 17-17-10/hdcti_model.ckpt"},
+        {"fold": 2, "path": "saved_model/2026-07-17 17-17-42/hdcti_model.ckpt"},
+        {"fold": 3, "path": "saved_model/2026-07-17 17-18-09/hdcti_model.ckpt"},
+        {"fold": 4, "path": "saved_model/2026-07-17 17-18-32/hdcti_model.ckpt"},
+        {"fold": 5, "path": "saved_model/2026-07-17 17-19-00/hdcti_model.ckpt"}
+      ]
+    },
+    {
+      "name": "SymMap2.0",
+      "slug": "symmap",
+      "config": "configs/HDCTI_symmap_pair_stratified_herb_only_no_dense_full.conf",
+      "config_sha256": "1ff151c5d8275450cbfa636dcf70e4765eb4f3423393ea66f78c553e3a14de8c",
+      "source_log": "results/batch_runs/no_dense_chcr_full_20260717_171403/05_symmap_herb_only.log",
+      "checkpoints": [
+        {"fold": 1, "path": "saved_model/2026-07-17 17-24-03/hdcti_model.ckpt"},
+        {"fold": 2, "path": "saved_model/2026-07-17 17-24-28/hdcti_model.ckpt"},
+        {"fold": 3, "path": "saved_model/2026-07-17 17-24-48/hdcti_model.ckpt"},
+        {"fold": 4, "path": "saved_model/2026-07-17 17-25-03/hdcti_model.ckpt"},
+        {"fold": 5, "path": "saved_model/2026-07-17 17-25-24/hdcti_model.ckpt"}
+      ]
+    },
+    {
+      "name": "ETCM2.0 mention10",
+      "slug": "etcm_mention10",
+      "config": "configs/HDCTI_etcm_mention10_pair_stratified_herb_only_no_dense_full.conf",
+      "config_sha256": "b7d6f1000da991125d19ab9fb9fd91767592e4ea4073eaba499c8af2195860fb",
+      "source_log": "results/batch_runs/no_dense_chcr_full_20260717_171403/07_etcm_mention10_herb_only.log",
+      "checkpoints": [
+        {"fold": 1, "path": "saved_model/2026-07-17 17-32-22/hdcti_model.ckpt"},
+        {"fold": 2, "path": "saved_model/2026-07-17 17-34-54/hdcti_model.ckpt"},
+        {"fold": 3, "path": "saved_model/2026-07-17 17-37-02/hdcti_model.ckpt"},
+        {"fold": 4, "path": "saved_model/2026-07-17 17-38-46/hdcti_model.ckpt"},
+        {"fold": 5, "path": "saved_model/2026-07-17 17-40-09/hdcti_model.ckpt"}
+      ]
+    }
+  ]
+}

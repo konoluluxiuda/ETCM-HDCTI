@@ -4,16 +4,37 @@ import numpy as np
 from sklearn.metrics import average_precision_score
 
 
-def build_exact_degree_counterfactuals(
-        compound_ids, compound_to_herbs, draws=20, seed=42026):
-    """Build deterministic, disjoint H-C counterfactual assignments.
+COUNTERFACTUAL_DONOR_STRATEGIES = (
+    'random',
+    'exact_degree',
+    'exact_degree_disjoint',
+)
 
-    A valid donor has the same H-C degree as the source compound and shares no
-    herb with it. Assignments are made per compound, not per C-P pair, so a
-    compound receives the same donor in one draw for all candidate proteins.
+
+def build_counterfactual_donors(
+        compound_ids,
+        compound_to_herbs,
+        draws=20,
+        seed=42026,
+        strategy='exact_degree_disjoint',
+        donor_compound_ids=None,
+        assignment_compound_ids=None):
+    """Build deterministic per-compound donor assignments.
+
+    ``random`` only excludes the source compound. ``exact_degree`` also
+    requires equal H-C degree but permits herb overlap. The strict
+    ``exact_degree_disjoint`` strategy additionally rejects every donor that
+    shares an herb with the source.
     """
     if int(draws) <= 0:
         raise ValueError('draws must be positive.')
+    strategy = str(strategy).strip().lower()
+    if strategy not in COUNTERFACTUAL_DONOR_STRATEGIES:
+        raise ValueError(
+            'Unknown donor strategy %s; expected one of %s.' % (
+                strategy, ', '.join(COUNTERFACTUAL_DONOR_STRATEGIES)
+            )
+        )
 
     normalized = {
         str(compound_id): frozenset(str(herb_id) for herb_id in herbs)
@@ -21,12 +42,24 @@ def build_exact_degree_counterfactuals(
         if herbs
     }
     compounds = sorted({str(compound_id) for compound_id in compound_ids})
+    donor_compounds = sorted({
+        str(compound_id) for compound_id in (
+            compounds if donor_compound_ids is None else donor_compound_ids
+        )
+    })
+    assignment_compounds = set(
+        compounds if assignment_compound_ids is None else (
+            str(compound_id) for compound_id in assignment_compound_ids
+        )
+    )
+    eligible = {
+        compound_id for compound_id in donor_compounds
+        if compound_id in normalized
+    }
     degree_buckets = defaultdict(set)
     herb_to_compounds = defaultdict(set)
-    for compound_id in compounds:
-        herbs = normalized.get(compound_id, frozenset())
-        if not herbs:
-            continue
+    for compound_id in eligible:
+        herbs = normalized[compound_id]
         degree_buckets[len(herbs)].add(compound_id)
         for herb_id in herbs:
             herb_to_compounds[herb_id].add(compound_id)
@@ -39,26 +72,110 @@ def build_exact_degree_counterfactuals(
         herbs = normalized.get(compound_id, frozenset())
         if not herbs:
             continue
-        blocked = {compound_id}
-        for herb_id in herbs:
-            blocked.update(herb_to_compounds[herb_id])
-        pool = sorted(degree_buckets[len(herbs)] - blocked)
-        pool_sizes[compound_id] = len(pool)
-        if not pool:
+        if strategy == 'random':
+            pool_size = len(eligible) - int(compound_id in eligible)
+            pool = None
+            if compound_id in assignment_compounds:
+                pool = set(eligible)
+                pool.discard(compound_id)
+        else:
+            degree_pool = degree_buckets[len(herbs)]
+            if strategy == 'exact_degree_disjoint':
+                overlapping = set()
+                for herb_id in herbs:
+                    overlapping.update(herb_to_compounds[herb_id])
+                pool_size = len(degree_pool - overlapping)
+                pool = None
+                if compound_id in assignment_compounds:
+                    pool = set(degree_pool)
+                    pool.difference_update(overlapping)
+            else:
+                pool_size = len(degree_pool) - int(compound_id in degree_pool)
+                pool = None
+                if compound_id in assignment_compounds:
+                    pool = set(degree_pool)
+                    pool.discard(compound_id)
+        if pool_size <= 0:
             continue
-        replace = len(pool) < int(draws)
+        replace = pool_size < int(draws)
+        if compound_id not in assignment_compounds:
+            rng.choice(pool_size, size=int(draws), replace=replace)
+            continue
+        pool = sorted(pool)
+        pool_sizes[compound_id] = len(pool)
         selected = rng.choice(pool, size=int(draws), replace=replace).tolist()
         assignments[compound_id] = [str(value) for value in selected]
         unique_donors[compound_id] = len(set(assignments[compound_id]))
 
     return {
+        'strategy': strategy,
         'assignments': assignments,
         'pool_sizes': pool_sizes,
         'unique_donors': unique_donors,
         'draws': int(draws),
         'seed': int(seed),
         'eligible_compounds': len(assignments),
-        'requested_compounds': len(compounds),
+        'requested_compounds': len(
+            set(compounds).intersection(assignment_compounds)
+        ),
+    }
+
+
+def build_exact_degree_counterfactuals(
+        compound_ids, compound_to_herbs, draws=20, seed=42026):
+    """Build deterministic, disjoint H-C counterfactual assignments.
+
+    A valid donor has the same H-C degree as the source compound and shares no
+    herb with it. Assignments are made per compound, not per C-P pair, so a
+    compound receives the same donor in one draw for all candidate proteins.
+    """
+    return build_counterfactual_donors(
+        compound_ids,
+        compound_to_herbs,
+        draws=draws,
+        seed=seed,
+        strategy='exact_degree_disjoint',
+    )
+
+
+def summarize_donor_assignments(assignments, compound_to_herbs):
+    """Summarize degree matching and herb overlap in donor assignments."""
+    normalized = {
+        str(compound_id): frozenset(str(herb_id) for herb_id in herbs)
+        for compound_id, herbs in compound_to_herbs.items()
+    }
+    rows = []
+    for source_id, donor_ids in assignments.items():
+        source_herbs = normalized.get(str(source_id), frozenset())
+        for donor_id in donor_ids:
+            donor_herbs = normalized.get(str(donor_id), frozenset())
+            intersection = len(source_herbs & donor_herbs)
+            union = len(source_herbs | donor_herbs)
+            rows.append({
+                'degree_matched': len(source_herbs) == len(donor_herbs),
+                'shared_herbs': intersection,
+                'jaccard': float(intersection / float(union)) if union else 0.0,
+            })
+    if not rows:
+        return {
+            'assignments': 0,
+            'degree_matched_fraction': None,
+            'overlap_fraction': None,
+            'mean_shared_herbs': None,
+            'mean_jaccard': None,
+        }
+    return {
+        'assignments': len(rows),
+        'degree_matched_fraction': float(np.mean([
+            row['degree_matched'] for row in rows
+        ])),
+        'overlap_fraction': float(np.mean([
+            row['shared_herbs'] > 0 for row in rows
+        ])),
+        'mean_shared_herbs': float(np.mean([
+            row['shared_herbs'] for row in rows
+        ])),
+        'mean_jaccard': float(np.mean([row['jaccard'] for row in rows])),
     }
 
 
