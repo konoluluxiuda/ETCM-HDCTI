@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "protocol": "strict_pair_stratified_no_dense_hctx_ablation_v1",
+  "reference_results": "results/batch_runs/no_dense_chcr_full_20260717_171403/results.tsv",
+  "allowed_config_differences": [
+    "model.variant",
+    "context.interaction",
+    "context.herb_protein"
+  ],
+  "decision_gate": {
+    "minimum_non_decreasing_datasets": 3,
+    "minimum_macro_AUPR_delta": 0.001,
+    "maximum_single_dataset_AUPR_drop": 0.003,
+    "minimum_datasets_with_three_positive_folds": 3
+  },
+  "datasets": [
+    {
+      "name": "TCM-Suite",
+      "slug": "tcmsuite",
+      "no_context_config": "configs/HDCTI_tcmsuite_pair_stratified_no_context_no_dense_full.conf",
+      "no_context_sha256": "46b12afbd23415cc846255ea4cc1c03510b78a7082cc833d7e7ade8a26e1b690",
+      "hctx_config": "configs/HDCTI_tcmsuite_pair_stratified_herb_only_no_dense_full.conf",
+      "hctx_sha256": "de8c14948959f7630dccc799fb81881b243d65d50b8a54026baf10b9218f0893"
+    },
+    {
+      "name": "TCMSP",
+      "slug": "tcmsp",
+      "no_context_config": "configs/HDCTI_tcmsp_pair_stratified_no_context_no_dense_full.conf",
+      "no_context_sha256": "0f67b0011cba96c753d5e02201a8a1dec1cf26161e8ae2dc158114a0ca64c822",
+      "hctx_config": "configs/HDCTI_tcmsp_pair_stratified_herb_only_no_dense_full.conf",
+      "hctx_sha256": "80fc6531dcaa7fbe069f690de8195da003c313d89fa4cc0e395a96d7fc78c79f"
+    },
+    {
+      "name": "SymMap2.0",
+      "slug": "symmap",
+      "no_context_config": "configs/HDCTI_symmap_pair_stratified_no_context_no_dense_full.conf",
+      "no_context_sha256": "7a3b7487b93bfc5c58c8ea865d55b17517263b5cdb42dac8aff7b7d610a31cc4",
+      "hctx_config": "configs/HDCTI_symmap_pair_stratified_herb_only_no_dense_full.conf",
+      "hctx_sha256": "1ff151c5d8275450cbfa636dcf70e4765eb4f3423393ea66f78c553e3a14de8c"
+    },
+    {
+      "name": "ETCM2.0 mention10",
+      "slug": "etcm_mention10",
+      "no_context_config": "configs/HDCTI_etcm_mention10_pair_stratified_no_context_no_dense_full.conf",
+      "no_context_sha256": "be02f4ad23ac70b3c21bc40e30e9e300158fefdbcce5fee6eb1828ae6c133636",
+      "hctx_config": "configs/HDCTI_etcm_mention10_pair_stratified_herb_only_no_dense_full.conf",
+      "hctx_sha256": "b7d6f1000da991125d19ab9fb9fd91767592e4ea4073eaba499c8af2195860fb"
+    }
+  ]
+}
