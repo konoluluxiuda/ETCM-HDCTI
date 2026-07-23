@@ -1,0 +1,4 @@
+validation_order	compound_name	gene_symbol	uniprot_accession	evidence_grade	strict_rank	hctx_p_rank	hctx_p_chcr_rank	best_rank_gain_vs_strict	chdp_path_count	external_evidence
+2	DEXPROPRANOLOL	SIGMAR1	Q99720	B1	13	7	2	11	0	Human Sigma1 radioligand binding: Ki=1670 nM and IC50=3974 nM.
+14	Quercetin	PLAU	P00749	B1	16	1	5	15	8	Human uPA IC50=12100 nM plus an X-ray structure of quercetin bound in the uPA S1 pocket.
+15	Quercetin	OPRD1	P41143	Conflict	3	4	3	0	0	Human OPRD1 binding AC50 >30000 nM; docking-only reports do not override the direct inactivity result.

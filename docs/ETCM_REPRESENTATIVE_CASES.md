@@ -157,7 +157,27 @@ C-H-D-P 路径。
 - 不删除或隐藏 Quercetin–OPRD1 冲突案例；
 - 不声称三个案例代表 ETCM2.0 全库表现。
 
-## 7. 下一步
+## 7. 图版产物
 
-依据本文件生成三面板矢量图，并把案例表并入最终 Results/Case Study。
-绘图只读取冻结 JSON，不重新运行 TensorFlow。
+三面板图已使用 Python 生成，绘图过程只读取冻结 JSON，不重新运行
+TensorFlow：
+
+```text
+figures/etcm_case_study/etcm_representative_cases.svg
+figures/etcm_case_study/etcm_representative_cases.pdf
+figures/etcm_case_study/etcm_representative_cases.png
+figures/etcm_case_study/source_data.tsv
+```
+
+其中 SVG 和 PDF 为论文排版用矢量文件，PNG 仅用于快速预览。SVG 保留可编辑
+文本对象，图宽固定为 183 mm。可通过以下命令重建：
+
+```bash
+MPLCONFIGDIR=/tmp/hdcti-mpl \
+  /home/zry/.conda/envs/HDCTI/bin/python \
+  figures/etcm_case_study/figure_etcm_cases.py
+```
+
+![ETCM2.0 代表性案例图](../figures/etcm_case_study/etcm_representative_cases.svg)
+
+下一步仅需将该图、案例表和本文件第 5 节图注并入最终 Results/Case Study。
