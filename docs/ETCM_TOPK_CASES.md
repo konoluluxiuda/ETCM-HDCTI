@@ -259,8 +259,9 @@ configs/etcm_topk_representative_cases.json
 ```
 
 下一步生成论文案例表和三面板图：两个 B1 正向案例以及一个 Conflict
-失败案例。图中必须区分直接实验支持、模型侧 Herb 上下文和 H-D
-算法/数据库路径假设。
+失败案例。论文案例表和图版规范已经整理至
+[ETCM_REPRESENTATIVE_CASES.md](ETCM_REPRESENTATIVE_CASES.md)。实际图中
+必须区分直接实验支持、模型侧 Herb 上下文和 H-D 算法/数据库路径假设。
 
 验收文件计划：
 
