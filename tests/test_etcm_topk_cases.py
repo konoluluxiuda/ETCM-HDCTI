@@ -7,6 +7,7 @@ from util.etcm_topk_cases import (
     rank_candidates,
     resolve_raw_page,
     select_cases,
+    select_manual_validation_candidates,
 )
 
 
@@ -108,6 +109,85 @@ class EtcmTopkCaseTests(unittest.TestCase):
                 index, ['Sodium-dependent dopamine transporter']
             ),
         )
+
+    def test_manual_validation_selection_is_balanced_and_deterministic(self):
+        rows = []
+        methods = ('NoContext', 'HerbOnly', 'HerbOnly_CHCR')
+        for compound_id in ('1', '2'):
+            for protein_id in range(1, 7):
+                for method_index, method in enumerate(methods):
+                    if protein_id == 6 and method_index > 0:
+                        continue
+                    rows.append({
+                        'method': method,
+                        'compound_id': compound_id,
+                        'tcmip_id': 'TCMIP-I-%s' % compound_id,
+                        'compound_name': 'compound-%s' % compound_id,
+                        'support_stratum': 'low',
+                        'protein_id': str(protein_id),
+                        'gene_symbol': 'GENE%s' % protein_id,
+                        'target_name': 'target-%s' % protein_id,
+                        'uniprot_accessions': 'P%05d' % protein_id,
+                        'rank': str(protein_id + method_index),
+                        'evidence_level': 'E',
+                        'chdp_path_count': str(100 - protein_id),
+                    })
+        selected_a = select_manual_validation_candidates(
+            rows, ['1', '2'], per_compound=3, seed=2026
+        )
+        selected_b = select_manual_validation_candidates(
+            list(reversed(rows)), ['1', '2'], per_compound=3, seed=2026
+        )
+        self.assertEqual(
+            [
+                (row['compound_id'], row['protein_id'])
+                for row in selected_a
+            ],
+            [
+                (row['compound_id'], row['protein_id'])
+                for row in selected_b
+            ],
+        )
+        self.assertEqual(6, len(selected_a))
+        self.assertEqual(
+            {'1': 3, '2': 3},
+            {
+                compound_id: sum(
+                    row['compound_id'] == compound_id
+                    for row in selected_a
+                )
+                for compound_id in ('1', '2')
+            },
+        )
+        self.assertTrue(all(
+            row['evidence_level_at_freeze'] == 'E'
+            for row in selected_a
+        ))
+
+    def test_manual_validation_excludes_non_evidence_or_missing_identity(self):
+        valid = {
+            'method': 'NoContext',
+            'compound_id': '1',
+            'tcmip_id': 'TCMIP-I-1',
+            'compound_name': 'compound',
+            'support_stratum': 'low',
+            'protein_id': '1',
+            'gene_symbol': 'GENE1',
+            'target_name': 'target',
+            'uniprot_accessions': 'P00001',
+            'rank': '1',
+            'evidence_level': 'E',
+            'chdp_path_count': '0',
+        }
+        invalid_level = dict(valid, protein_id='2', evidence_level='A')
+        invalid_identity = dict(valid, protein_id='3', gene_symbol='')
+        selected = select_manual_validation_candidates(
+            [valid, invalid_level, invalid_identity],
+            ['1'],
+            per_compound=1,
+            seed=2026,
+        )
+        self.assertEqual('1', selected[0]['protein_id'])
 
 
 if __name__ == '__main__':

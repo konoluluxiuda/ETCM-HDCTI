@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-07-23T14:44:22+08:00",
+  "verification_status": "IN_PROGRESS",
+  "candidate_manifest_sha256": "b6c68cb0d9e9cc55cd37d773ec099e0b8fc26c73c658609a79774cb78dd5fd01",
+  "frozen_candidate_count": 15,
+  "reviewed_candidate_count": 3,
+  "reviewed_query_count": 9,
+  "total_query_count": 45,
+  "identity_resolution": {
+    "compound_name": "DEXPROPRANOLOL",
+    "pubchem_cid": 21138,
+    "pubchem_title": "Dexpropranolol",
+    "inchi_key": "AQHHHDLHHXJYJD-CQSZACIVSA-N",
+    "isomeric_smiles": "CC(C)NC[C@H](COC1=CC=CC2=CC=CC=C21)O",
+    "chembl_id": "CHEMBL275742",
+    "chembl_name": "DEXPROPRANOLOL",
+    "identity_status": "exact_stereochemical_match",
+    "source_urls": [
+      "https://pubchem.ncbi.nlm.nih.gov/compound/21138",
+      "https://www.ebi.ac.uk/chembl/explore/compound/CHEMBL275742"
+    ],
+    "exclusion_rule": "Racemic propranolol and the opposite enantiomer are not accepted as direct dexpropranolol evidence."
+  },
+  "pair_results": [
+    {
+      "validation_order": 1,
+      "compound_name": "DEXPROPRANOLOL",
+      "gene_symbol": "CA12",
+      "uniprot_accession": "O43570",
+      "chembl_target_id": "CHEMBL3242",
+      "evidence_grade": "E",
+      "verification_verdict": "no_verified_support_in_current_search",
+      "source_results": {
+        "BindingDB": "exact-structure query returned two other human targets and no CA12 record",
+        "ChEMBL": "zero exact CHEMBL275742-CHEMBL3242 activity records",
+        "PubMed": "zero exact-name or stereochemical-synonym pair records"
+      },
+      "interpretation": "Unverified prediction, not a confirmed negative interaction."
+    },
+    {
+      "validation_order": 2,
+      "compound_name": "DEXPROPRANOLOL",
+      "gene_symbol": "SIGMAR1",
+      "uniprot_accession": "Q99720",
+      "chembl_target_id": "CHEMBL287",
+      "evidence_grade": "B1",
+      "verification_verdict": "direct_quantitative_binding_support",
+      "source_results": {
+        "BindingDB": "exact-structure query returned two other human targets and no SIGMAR1 record",
+        "ChEMBL": "human Sigma1 radioligand-binding assay; Ki=1670 nM and IC50=3974 nM",
+        "PubMed": "one broad query hit used S-propranolol and was rejected as an enantiomer mismatch"
+      },
+      "primary_record": {
+        "source": "ChEMBL",
+        "molecule_chembl_id": "CHEMBL275742",
+        "target_chembl_id": "CHEMBL287",
+        "assay_chembl_id": "CHEMBL1909110",
+        "document_chembl_id": "CHEMBL1909046",
+        "activity_ids": [
+          7808827,
+          7808828
+        ],
+        "organism": "Homo sapiens",
+        "assay_description": "DRUGMATRIX: Sigma1 radioligand binding (ligand: [3H] Haloperidol)",
+        "measurements": [
+          {
+            "type": "Ki",
+            "relation": "=",
+            "value": 1670.0,
+            "unit": "nM"
+          },
+          {
+            "type": "IC50",
+            "relation": "=",
+            "value": 3974.0,
+            "unit": "nM"
+          }
+        ],
+        "source_url": "https://www.ebi.ac.uk/chembl/api/data/activity.json?molecule_chembl_id=CHEMBL275742&target_chembl_id=CHEMBL287&limit=20"
+      }
+    },
+    {
+      "validation_order": 3,
+      "compound_name": "DEXPROPRANOLOL",
+      "gene_symbol": "MCL1",
+      "uniprot_accession": "Q07820",
+      "chembl_target_id": "CHEMBL4361",
+      "evidence_grade": "E",
+      "verification_verdict": "no_verified_support_in_current_search",
+      "source_results": {
+        "BindingDB": "exact-structure query returned two other human targets and no MCL1 record",
+        "ChEMBL": "zero exact CHEMBL275742-CHEMBL4361 activity records",
+        "PubMed": "three broad propranolol-MCL1 hits were racemate-level or indirect pathway studies and were rejected as direct dexpropranolol evidence"
+      },
+      "interpretation": "Unverified prediction, not a confirmed negative interaction."
+    }
+  ],
+  "restrictions": {
+    "used_for_training": false,
+    "used_for_checkpoint_selection": false,
+    "used_for_case_selection": false,
+    "used_for_candidate_ranking": false,
+    "may_change_existing_ranks": false
+  }
+}

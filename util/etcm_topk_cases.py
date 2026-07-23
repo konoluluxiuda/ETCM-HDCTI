@@ -253,3 +253,85 @@ def group_rows(rows, keys):
     for row in rows:
         output[tuple(str(row[key]) for key in keys)].append(row)
     return dict(output)
+
+
+def select_manual_validation_candidates(
+        rows,
+        compound_order,
+        per_compound=3,
+        seed=2026):
+    grouped = defaultdict(list)
+    for row in rows:
+        if row.get('evidence_level') != 'E':
+            continue
+        if not (
+                row.get('gene_symbol')
+                and row.get('target_name')
+                and row.get('uniprot_accessions')):
+            continue
+        grouped[
+            (str(row['compound_id']), str(row['protein_id']))
+        ].append(dict(row))
+
+    selected = []
+    for compound_id in [str(value) for value in compound_order]:
+        candidates = []
+        for (candidate_compound, protein_id), pair_rows in grouped.items():
+            if candidate_compound != compound_id:
+                continue
+            ranks = [int(row['rank']) for row in pair_rows]
+            methods = sorted({row['method'] for row in pair_rows})
+            reciprocal_rank_sum = sum(1.0 / rank for rank in ranks)
+            reference = sorted(
+                pair_rows,
+                key=lambda row: (int(row['rank']), row['method']),
+            )[0]
+            candidates.append({
+                'compound_id': compound_id,
+                'tcmip_id': reference.get('tcmip_id', ''),
+                'compound_name': reference.get('compound_name', ''),
+                'support_stratum': reference.get('support_stratum', ''),
+                'protein_id': protein_id,
+                'gene_symbol': reference.get('gene_symbol', ''),
+                'target_name': reference.get('target_name', ''),
+                'uniprot_accessions': reference.get(
+                    'uniprot_accessions', ''
+                ),
+                'method_count': len(methods),
+                'methods': ';'.join(methods),
+                'method_ranks': ';'.join(sorted(
+                    '%s:%s' % (row['method'], row['rank'])
+                    for row in pair_rows
+                )),
+                'best_rank': min(ranks),
+                'mean_rank': sum(ranks) / float(len(ranks)),
+                'reciprocal_rank_sum': reciprocal_rank_sum,
+                'chdp_path_count': max(
+                    int(row.get('chdp_path_count') or 0)
+                    for row in pair_rows
+                ),
+                'raw_target_page': reference.get('raw_target_page', ''),
+                'evidence_level_at_freeze': 'E',
+            })
+        candidates.sort(key=lambda row: (
+            -int(row['method_count']),
+            -float(row['reciprocal_rank_sum']),
+            int(row['best_rank']),
+            float(row['mean_rank']),
+            stable_tie_break(
+                seed, row['compound_id'], row['protein_id']
+            ),
+        ))
+        if len(candidates) < int(per_compound):
+            raise ValueError(
+                'Compound %s has %d eligible E-level candidates; %d required.'
+                % (compound_id, len(candidates), per_compound)
+            )
+        for compound_rank, row in enumerate(
+                candidates[:int(per_compound)], start=1):
+            row['compound_selection_rank'] = compound_rank
+            selected.append(row)
+
+    for validation_order, row in enumerate(selected, start=1):
+        row['validation_order'] = validation_order
+    return selected
