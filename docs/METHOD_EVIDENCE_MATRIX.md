@@ -159,15 +159,16 @@ H-C degree / training C-P degree 分层
 SDIS zero-support eligible/ineligible 分组
 ```
 
-### 表 6：效率与复杂度
+### 补充说明：效率与复杂度
 
 ```text
-参数量
-训练时间
-推理时间
-峰值显存
+新增参数的理论数量
+CHCR 仅增加训练期反事实打分
+SDIS 为无参数确定性门控
 稠密注意力移除后的复杂度变化
 ```
+
+当前不为该部分重新运行四库硬件 benchmark。若目标期刊或审稿人明确要求，再在固定单机环境下补参数量、单 epoch 时间、推理时间和峰值显存；这些指标不作为当前投稿前阻塞项。
 
 ### 表 7：ETCM2.0 案例研究
 
@@ -185,7 +186,7 @@ Herb context 与可解释路径
 | 已完成 | 最终 `attention.max.nodes=0` 下四库匹配的 `Strict-HDCTI vs Hctx-P` 普通随机边五折直接消融 | M1 是共享骨干创新，必须有最终统一口径直接证据 | 冻结判定 PASS：macro AUPR `+0.009250`，3/4 数据库不下降且达到逐折方向门槛 |
 | 已完成 | 最终主结果、消融和场景表统一生成 | 避免混用历史 attention、epoch 或 split 口径 | 已通过冻结来源与配置哈希生成随机边 Strict/Hctx-P/CHCR、cold-start Hctx-P/SDIS 固定阈值及校准阈值表，见 `FINAL_RESULTS_TABLES.md` |
 | 加强 | 四库统一 cold-start NoContext 完整五折缺失 | 当前仅有单折 Pilot；ETCM 旧五折也不是统一 `attention.max.nodes=0` 口径 | 不阻塞 SDIS 相对匹配 Hctx-P 的直接消融；若终稿需要展示 Hctx-P 的四库 cold-start 绝对贡献，再补四个 NoContext 五折 |
-| 阻塞 | 参数量、单 epoch 时间、推理时间和峰值显存未形成统一表 | 期刊审稿会质疑 CHCR 训练成本与 SDIS 部署代价 | 冻结硬件和 batch，执行轻量复杂度审计 |
+| 可选 | 未形成统一硬件复杂度 benchmark | 可能用于回应 CHCR 训练成本与 SDIS 部署代价，但不影响主要有效性结论 | 正文仅报告理论增量：Hctx-P 少量参数、CHCR 仅训练期开销、SDIS 无参数；审稿明确要求时再补硬件实测 |
 | 阻塞 | ETCM Top-K 案例仍缺最终外部证据闭环 | 数据贡献和中医药解释目前弱于方法实验 | 使用实体映射选取少量高置信候选，记录检索日期与证据等级 |
 | 加强 | 除 ETCM CHCR 外，其他最终配置主要为单训练 seed | fold 方差不能代表初始化稳定性 | 在主表冻结后选择一个代表库补 3 seed，或在局限性中明确披露 |
 | 可选 | disease-aware / target cold-start 未形成四库最终结果 | 可增强对原论文和困难泛化场景的覆盖 | 仅在主表完成且计算预算允许时追加，不阻塞当前模型冻结 |

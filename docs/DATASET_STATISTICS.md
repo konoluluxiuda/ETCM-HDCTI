@@ -1,6 +1,6 @@
 # 数据集统计
 
-根据 2026-07-02 本地 `dataset/` 目录下的文件生成。
+根据 2026-07-23 本地 `dataset/` 目录下的文件更新。
 大型 ETCM2.0 原始 JSON 文件仅统计文件数量和总体大小。
 
 ## 总览
@@ -12,16 +12,33 @@
 | `Symmap` | 161.8MB | 85,172 | 37,991 | 194,558 | 382,930 | 37,991 | 6,477,695 |
 | `ETCM2.0_processed` | 34.0MB | 67,335 | 180,589 | 2,033,920 | 41,076 | 180,589 | 0 |
 | `ETCM2.0_core` | 32.7MB | 36,216 | 109,747 | 1,991,225 | 41,076 | 109,747 | 109,747 |
-| `ETCM2.0 原始 JSON` | 40.2GB | - | - | - | - | - | - |
+| `ETCM2.0_validation` | 130MB | - | - | - | - | - | - |
+| `ETCM2.0 原始 JSON` | 170GB | - | - | - | - | - | - |
 
 ## ETCM2.0 原始 JSON
 
 - 路径：`dataset/ETCM2.0`
-- 大小：40.2GB
+- 大小：约 170GB
 - `etcm_herbs` JSON 文件数： 2,076
 - `etcm_targets` JSON 文件数： 260
 - `etcm_diseases` JSON 文件数： 7,705
-- 原始压缩包：`dataset/ETCM2.0_raw.zip` (2.4GB)
+- `etcm_ingredients` JSON 文件数：38,281，其中成功页面 38,272
+- 原始基础压缩包：`dataset/ETCM2.0_raw.zip`（2.4GB）
+- Ingredient 压缩包：`dataset/etcm_ingredients.zip`（6.2GB）
+
+## ETCM2.0 Ingredient 外部验证证据
+
+- 路径：`dataset/ETCM2.0_validation`
+- 大小：约 130MB
+- 用途：冻结模型后的外部验证与案例解释，不参与训练
+- 确认靶点原始证据：13,254
+- 确认靶点唯一关系：4,753
+- 潜在靶点唯一关系：181,121
+- Ingredient-Herb 唯一关系：67,375
+- 选择性解析异常：0
+
+详细处理方法、训练重叠审计和使用边界见
+[ETCM2_INGREDIENT_VALIDATION.md](ETCM2_INGREDIENT_VALIDATION.md)。
 
 ## TCMsuite
 

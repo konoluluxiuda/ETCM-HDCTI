@@ -56,6 +56,23 @@ core 连通性检查：
 
 `P_D 中有 H_D 支撑的疾病` 比例较低，是因为 ETCM2.0 中存在大量疾病-靶点记录，但这些疾病没有对应的相关中药记录。core 数据集是针对当前 HDCTI 的化合物-蛋白训练目标优化的，并不是为了形成完整的疾病-中药闭环。
 
+## Ingredient 外部证据库
+
+2026-07-23 新增的 38,281 个 ingredient 页面不进入模型训练。通过
+`tools/build_etcm2_validation_evidence.py` 将其加工为独立的
+`dataset/ETCM2.0_validation`，只用于冻结 checkpoint 后的外部验证和案例解释。
+
+需要特别区分：
+
+- 当前 `ETCM2.0_processed/C_P.txt` 来源记录全部带有 `Similar Score`，主要表示相似性迁移得到的候选关系；
+- ingredient 页的 `Confirmed Targets` 共形成 4,753 条唯一确认关系；
+- 对 `ETCM2.0_core_mention10`，其中 685 条关系的两个实体都在模型空间中且 pair 未进入 C-P 训练边，可用于纯推理外部排名评价；
+- 训练重叠确认边只用于一致性核验，OOV 关系不按模型失败处理；
+- `Potential Targets` 不能作为独立真值或重新写回训练标签。
+
+完整统计、文件结构、重建命令和评价边界见
+[ETCM2_INGREDIENT_VALIDATION.md](ETCM2_INGREDIENT_VALIDATION.md)。
+
 ## 运行时路径修改
 
 模型不再把辅助文件路径硬编码为 `dataset/TCMsuite`：
