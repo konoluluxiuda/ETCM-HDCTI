@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "purpose": "frozen_checkpoint_posthoc_case_explanation",
+  "dataset": "ETCM2.0_core_mention10",
+  "fold": 1,
+  "case_count": 5,
+  "selection_seed": 2026,
+  "top_k": 20,
+  "candidate_scope": "all_509_model_proteins",
+  "candidate_filter": "all_known_ETCM2.0_core_mention10_C_P_pairs",
+  "external_evidence_manifest": {
+    "path": "dataset/ETCM2.0_validation/manifest.json",
+    "sha256": "2d8fc6f8b6409a39a22a4edb2b2c23e5c882e764424aaf77079596c4adcb6e7e"
+  },
+  "models": [
+    {
+      "method": "Strict-HDCTI",
+      "variant": "NoContext",
+      "config": "configs/HDCTI_etcm_mention10_pair_stratified_no_context_no_dense_full.conf",
+      "config_sha256": "be02f4ad23ac70b3c21bc40e30e9e300158fefdbcce5fee6eb1828ae6c133636",
+      "checkpoint": "saved_model/2026-07-22 16-46-39/hdcti_model.ckpt",
+      "checkpoint_index_sha256": "c239635671b54ed1a6c97ef6433c24526501cca8b883b6235788fa9e3307f008",
+      "checkpoint_data_sha256": "c4d193da139f8b80f4d6ac793fd88540764d952b1f7ad196df9e6e4ee4f34881"
+    },
+    {
+      "method": "Strict-HDCTI + Hctx-P",
+      "variant": "Hctx-P",
+      "config": "configs/HDCTI_etcm_mention10_pair_stratified_herb_only_no_dense_full.conf",
+      "config_sha256": "b7d6f1000da991125d19ab9fb9fd91767592e4ea4073eaba499c8af2195860fb",
+      "checkpoint": "saved_model/2026-07-17 17-32-22/hdcti_model.ckpt",
+      "checkpoint_index_sha256": "dfadc3387d5d4d36c3036c6ed5c045c69279bc8bfc052b636095fc5cab4c4986",
+      "checkpoint_data_sha256": "4f09ea1752a6b712a4894f5f4c99cc8ef78a615360c8f49c46a599a9c2a2cda8"
+    },
+    {
+      "method": "Strict-HDCTI + Hctx-P + CHCR",
+      "variant": "Hctx-P+CHCR",
+      "config": "configs/HDCTI_etcm_mention10_pair_stratified_chcr_no_dense_full.conf",
+      "config_sha256": "2a8150915b853176460ca86e1f7212a63965b88c71053ed26d619fce096a6a44",
+      "checkpoint": "saved_model/2026-07-17 17-42-26/hdcti_model.ckpt",
+      "checkpoint_index_sha256": "8dc133c6a2f150e6f7d9ede516acafc33436010c4602668098e19cd148d60bf6",
+      "checkpoint_data_sha256": "d75486bf8c470894a227195faed3851ebe63f90ff68f0ee913750cd5c379d08a"
+    }
+  ]
+}

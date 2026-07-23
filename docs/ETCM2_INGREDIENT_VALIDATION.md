@@ -215,8 +215,17 @@ Enrichment Factor@K
 3. `ingredient_herb.tsv`：预测成分的独立药材来源；
 4. `potential_target_pairs.tsv`：仅作为 ETCM 推断网络一致性参考；
 5. `ingredient.tsv`：名称、CAS、PubChem、QED 和药代属性。
+6. 原始 Herb 页面及其加工后的 H-C：核对药材名称、属性和成分来源；
+7. 原始 Target 页面及实体映射：核对 Gene Symbol、UniProt 和靶点名称；
+8. 原始 Disease 页面及其加工后的 P-D/H-D：生成带来源的疾病机制路径。
 
 Hctx-P 或 CHCR 的解释应比较模型高权重药材与 `ingredient_herb.tsv` 的独立来源是否一致。潜在靶点不能与模型预测互相充当独立验证，因为二者可能共享相似性迁移信号。
+
+Herb、Target、Disease 页面只在 Top-K 排名冻结后接入，使用
+`tools/annotate_etcm_topk_context.py` 生成上下文注释。H-C 和 P-D 已作为
+模型侧信息，不能再次包装成外部证据；H-D 与完整 C-P 网络高度耦合，只能
+形成 D 级算法/数据库机制假设。具体输出与覆盖统计见
+[ETCM_TOPK_CASES.md](ETCM_TOPK_CASES.md)。
 
 ## 10. 可复现性与版本边界
 

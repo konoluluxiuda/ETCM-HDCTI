@@ -1,0 +1,313 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-07-23T13:52:20.529888+08:00",
+  "selection_status": "frozen_before_checkpoint_scoring",
+  "model_scores_read": false,
+  "dataset": "ETCM2.0_core_mention10",
+  "fold": 1,
+  "case_count": 5,
+  "selection_seed": 2026,
+  "selection_algorithm": {
+    "name": "rank_based_training_support_tertiles_v1",
+    "strata": [
+      "low",
+      "medium",
+      "high"
+    ],
+    "allocation": {
+      "low": 2,
+      "medium": 1,
+      "high": 2
+    },
+    "eligibility": [
+      "compound_and_protein_in_mention10_model_space",
+      "at_least_one_unseen_confirmed_target",
+      "ingredient_identity_row_available",
+      "at_least_one_independent_ingredient_herb_source"
+    ],
+    "within_stratum_priority": [
+      "CAS_or_PubChem_available",
+      "unseen_confirmed_target_count_desc",
+      "confirmed_evidence_count_desc",
+      "independent_herb_count_desc",
+      "mention_count_desc",
+      "seeded_SHA256_tie_break"
+    ]
+  },
+  "candidate_pool": {
+    "unseen_confirmed_pairs": 685,
+    "unseen_confirmed_compounds": 332,
+    "eligible_compounds": 332,
+    "strata": {
+      "low": {
+        "eligible": 111,
+        "selected": 2,
+        "degree_min": 0,
+        "degree_max": 3
+      },
+      "medium": {
+        "eligible": 110,
+        "selected": 1,
+        "degree_min": 3,
+        "degree_max": 7
+      },
+      "high": {
+        "eligible": 111,
+        "selected": 2,
+        "degree_min": 7,
+        "degree_max": 45
+      }
+    }
+  },
+  "selected_cases": [
+    {
+      "compound_id": "16632",
+      "tcmip_id": "TCMIP-I-20746",
+      "all_tcmip_ids": "TCMIP-I-20746",
+      "compound_name": "DEXPROPRANOLOL",
+      "model_train_cp_degree": 3,
+      "unseen_confirmed_targets": 8,
+      "confirmed_evidence_count": 17,
+      "confirmed_reference_count": 28,
+      "independent_herb_count": 2,
+      "mention_count": 18,
+      "cas_number": "5051-22-9||4199-09-1||525-66-6||13013-17-7",
+      "pubchem_cids": "21138",
+      "has_identity_identifier": true,
+      "support_stratum": "low",
+      "support_percentile": 0.2575301204819277,
+      "selection_order": 1
+    },
+    {
+      "compound_id": "32323",
+      "tcmip_id": "TCMIP-I-23328",
+      "all_tcmip_ids": "TCMIP-I-23328",
+      "compound_name": "gallocatechin gallate",
+      "model_train_cp_degree": 3,
+      "unseen_confirmed_targets": 7,
+      "confirmed_evidence_count": 11,
+      "confirmed_reference_count": 25,
+      "independent_herb_count": 1,
+      "mention_count": 12,
+      "cas_number": "5127-64-0",
+      "pubchem_cids": "1287|199472|5276890",
+      "has_identity_identifier": true,
+      "support_stratum": "low",
+      "support_percentile": 0.30873493975903615,
+      "selection_order": 2
+    },
+    {
+      "compound_id": "177",
+      "tcmip_id": "TCMIP-I-00592",
+      "all_tcmip_ids": "TCMIP-I-00592",
+      "compound_name": "(+)-Gallocatechin",
+      "model_train_cp_degree": 4,
+      "unseen_confirmed_targets": 7,
+      "confirmed_evidence_count": 11,
+      "confirmed_reference_count": 25,
+      "independent_herb_count": 19,
+      "mention_count": 228,
+      "cas_number": "970-73-0||1617-55-6",
+      "pubchem_cids": "65084",
+      "has_identity_identifier": true,
+      "support_stratum": "medium",
+      "support_percentile": 0.39006024096385544,
+      "selection_order": 3
+    },
+    {
+      "compound_id": "26973",
+      "tcmip_id": "TCMIP-I-37433",
+      "all_tcmip_ids": "TCMIP-I-37433",
+      "compound_name": "Sulfuretin",
+      "model_train_cp_degree": 15,
+      "unseen_confirmed_targets": 7,
+      "confirmed_evidence_count": 7,
+      "confirmed_reference_count": 19,
+      "independent_herb_count": 3,
+      "mention_count": 84,
+      "cas_number": "120-05-8",
+      "pubchem_cids": "5281295",
+      "has_identity_identifier": true,
+      "support_stratum": "high",
+      "support_percentile": 0.947289156626506,
+      "selection_order": 4
+    },
+    {
+      "compound_id": "25367",
+      "tcmip_id": "TCMIP-I-34593",
+      "all_tcmip_ids": "TCMIP-I-34593",
+      "compound_name": "Quercetin",
+      "model_train_cp_degree": 30,
+      "unseen_confirmed_targets": 11,
+      "confirmed_evidence_count": 11,
+      "confirmed_reference_count": 33,
+      "independent_herb_count": 1,
+      "mention_count": 88,
+      "cas_number": "117-39-5",
+      "pubchem_cids": "5280343",
+      "has_identity_identifier": true,
+      "support_stratum": "high",
+      "support_percentile": 0.9774096385542169,
+      "selection_order": 5
+    }
+  ],
+  "inputs": {
+    "checkpoint_manifest": "/home/zry/workspace/HDCTI/configs/etcm_topk_case_checkpoints.json",
+    "checkpoint_manifest_sha256": "7dd16a3a452c7b361294799e951c721b685b5cdbdfe7d0cb3326e170ecf330dd",
+    "external_evidence_manifest": "/home/zry/workspace/HDCTI/dataset/ETCM2.0_validation/manifest.json",
+    "external_evidence_manifest_sha256": "2d8fc6f8b6409a39a22a4edb2b2c23e5c882e764424aaf77079596c4adcb6e7e",
+    "unseen_confirmed": "/home/zry/workspace/HDCTI/dataset/ETCM2.0_validation/validation/ETCM2.0_core_mention10/unseen_confirmed.tsv",
+    "unseen_confirmed_sha256": "111a0d755c7a60cea3ddfb17c313dbdb189d46576f98930faec8c926ca8df0b6",
+    "ingredient_entities": "/home/zry/workspace/HDCTI/dataset/ETCM2.0_validation/entities/ingredient.tsv",
+    "ingredient_entities_sha256": "adfb8d5e6232dca8af268ba1d5cae2005a52114072e6a98edd40df1f4d8028bb",
+    "ingredient_herb": "/home/zry/workspace/HDCTI/dataset/ETCM2.0_validation/relations/ingredient_herb.tsv",
+    "ingredient_herb_sha256": "74838a09954191852efdfd4ec456bb70f5801d77e4e959382e6b3bf7c124a2d3",
+    "compound_mapping": "/home/zry/workspace/HDCTI/dataset/ETCM2.0_core_mention10/mappings/compound_id_map.csv",
+    "compound_mapping_sha256": "05d6c7da5fd1871aba578642313f1ff52fd972fd83b57a9162d7248de117d5c5",
+    "eligible_candidates": "/home/zry/workspace/HDCTI/results/etcm_topk_cases/selection/eligible_candidates.tsv",
+    "eligible_candidates_sha256": "3d4e372892500f43ad32de025888e9c25671e99b384708d4b58863accab643f1",
+    "selected_cases": "/home/zry/workspace/HDCTI/results/etcm_topk_cases/selection/selected_cases.tsv",
+    "selected_cases_sha256": "a3e835be3be5c480f6fab009a9f15a517ba8d820b775c767b37b273d6be3d15f"
+  },
+  "protocols": [
+    {
+      "method": "Strict-HDCTI",
+      "variant": "NoContext",
+      "protocol": {
+        "config_path": "/home/zry/workspace/HDCTI/configs/HDCTI_etcm_mention10_pair_stratified_no_context_no_dense_full.conf",
+        "config_sha256": "be02f4ad23ac70b3c21bc40e30e9e300158fefdbcce5fee6eb1828ae6c133636",
+        "datapath": "/home/zry/workspace/HDCTI/dataset/ETCM2.0_core_mention10/ONE_indices.txt",
+        "strict_assignments": "/home/zry/workspace/HDCTI/dataset/ETCM2.0_core_mention10/splits/strict_seed_2026_k5/fold_assignments.tsv",
+        "strict_assignments_sha256": "bc9e3b514ff0263374d515d863ed2dabee836d8c02c0e13c04ef794a4b49ec61",
+        "outer_train_sha256": "4a7f9c599b0095f0613122e802e41027286f58bc947050fc6a9f9a959228fd91",
+        "outer_test_sha256": "29395b776ae5ef9b6f7da8de015717735e2c328c3c290f520dd095f0641de542",
+        "model_train_sha256": "6550c1c1b48ba974e02eac1a19e1049a9ad6641164f965e4f99c518a1018ec5d",
+        "validation_sha256": "8306bb140e0a766d69950e8e4432840bba13435482327fee0fbf25470d5d84a3",
+        "validation_info": {
+          "seed": 102026,
+          "ratio": 0.1,
+          "inner_train_records": 127340,
+          "validation_records": 14148,
+          "class_counts": {
+            "0": {
+              "total": 70744,
+              "inner_train": 63670,
+              "validation": 7074
+            },
+            "1": {
+              "total": 70744,
+              "inner_train": 63670,
+              "validation": 7074
+            }
+          },
+          "assignments_sha256": "6f5a278680483922f29b4b72b551ca718f5838fd1da584e7796c764b59de5fbe",
+          "strategy": "pair_stratified"
+        }
+      }
+    },
+    {
+      "method": "Strict-HDCTI + Hctx-P",
+      "variant": "Hctx-P",
+      "protocol": {
+        "config_path": "/home/zry/workspace/HDCTI/configs/HDCTI_etcm_mention10_pair_stratified_herb_only_no_dense_full.conf",
+        "config_sha256": "b7d6f1000da991125d19ab9fb9fd91767592e4ea4073eaba499c8af2195860fb",
+        "datapath": "/home/zry/workspace/HDCTI/dataset/ETCM2.0_core_mention10/ONE_indices.txt",
+        "strict_assignments": "/home/zry/workspace/HDCTI/dataset/ETCM2.0_core_mention10/splits/strict_seed_2026_k5/fold_assignments.tsv",
+        "strict_assignments_sha256": "bc9e3b514ff0263374d515d863ed2dabee836d8c02c0e13c04ef794a4b49ec61",
+        "outer_train_sha256": "4a7f9c599b0095f0613122e802e41027286f58bc947050fc6a9f9a959228fd91",
+        "outer_test_sha256": "29395b776ae5ef9b6f7da8de015717735e2c328c3c290f520dd095f0641de542",
+        "model_train_sha256": "6550c1c1b48ba974e02eac1a19e1049a9ad6641164f965e4f99c518a1018ec5d",
+        "validation_sha256": "8306bb140e0a766d69950e8e4432840bba13435482327fee0fbf25470d5d84a3",
+        "validation_info": {
+          "seed": 102026,
+          "ratio": 0.1,
+          "inner_train_records": 127340,
+          "validation_records": 14148,
+          "class_counts": {
+            "0": {
+              "total": 70744,
+              "inner_train": 63670,
+              "validation": 7074
+            },
+            "1": {
+              "total": 70744,
+              "inner_train": 63670,
+              "validation": 7074
+            }
+          },
+          "assignments_sha256": "6f5a278680483922f29b4b72b551ca718f5838fd1da584e7796c764b59de5fbe",
+          "strategy": "pair_stratified"
+        }
+      }
+    },
+    {
+      "method": "Strict-HDCTI + Hctx-P + CHCR",
+      "variant": "Hctx-P+CHCR",
+      "protocol": {
+        "config_path": "/home/zry/workspace/HDCTI/configs/HDCTI_etcm_mention10_pair_stratified_chcr_no_dense_full.conf",
+        "config_sha256": "2a8150915b853176460ca86e1f7212a63965b88c71053ed26d619fce096a6a44",
+        "datapath": "/home/zry/workspace/HDCTI/dataset/ETCM2.0_core_mention10/ONE_indices.txt",
+        "strict_assignments": "/home/zry/workspace/HDCTI/dataset/ETCM2.0_core_mention10/splits/strict_seed_2026_k5/fold_assignments.tsv",
+        "strict_assignments_sha256": "bc9e3b514ff0263374d515d863ed2dabee836d8c02c0e13c04ef794a4b49ec61",
+        "outer_train_sha256": "4a7f9c599b0095f0613122e802e41027286f58bc947050fc6a9f9a959228fd91",
+        "outer_test_sha256": "29395b776ae5ef9b6f7da8de015717735e2c328c3c290f520dd095f0641de542",
+        "model_train_sha256": "6550c1c1b48ba974e02eac1a19e1049a9ad6641164f965e4f99c518a1018ec5d",
+        "validation_sha256": "8306bb140e0a766d69950e8e4432840bba13435482327fee0fbf25470d5d84a3",
+        "validation_info": {
+          "seed": 102026,
+          "ratio": 0.1,
+          "inner_train_records": 127340,
+          "validation_records": 14148,
+          "class_counts": {
+            "0": {
+              "total": 70744,
+              "inner_train": 63670,
+              "validation": 7074
+            },
+            "1": {
+              "total": 70744,
+              "inner_train": 63670,
+              "validation": 7074
+            }
+          },
+          "assignments_sha256": "6f5a278680483922f29b4b72b551ca718f5838fd1da584e7796c764b59de5fbe",
+          "strategy": "pair_stratified"
+        }
+      }
+    }
+  ],
+  "checkpoints": [
+    {
+      "method": "Strict-HDCTI",
+      "variant": "NoContext",
+      "config": "/home/zry/workspace/HDCTI/configs/HDCTI_etcm_mention10_pair_stratified_no_context_no_dense_full.conf",
+      "config_sha256": "be02f4ad23ac70b3c21bc40e30e9e300158fefdbcce5fee6eb1828ae6c133636",
+      "checkpoint": "/home/zry/workspace/HDCTI/saved_model/2026-07-22 16-46-39/hdcti_model.ckpt",
+      "checkpoint_index_sha256": "c239635671b54ed1a6c97ef6433c24526501cca8b883b6235788fa9e3307f008",
+      "checkpoint_data_sha256": "c4d193da139f8b80f4d6ac793fd88540764d952b1f7ad196df9e6e4ee4f34881"
+    },
+    {
+      "method": "Strict-HDCTI + Hctx-P",
+      "variant": "Hctx-P",
+      "config": "/home/zry/workspace/HDCTI/configs/HDCTI_etcm_mention10_pair_stratified_herb_only_no_dense_full.conf",
+      "config_sha256": "b7d6f1000da991125d19ab9fb9fd91767592e4ea4073eaba499c8af2195860fb",
+      "checkpoint": "/home/zry/workspace/HDCTI/saved_model/2026-07-17 17-32-22/hdcti_model.ckpt",
+      "checkpoint_index_sha256": "dfadc3387d5d4d36c3036c6ed5c045c69279bc8bfc052b636095fc5cab4c4986",
+      "checkpoint_data_sha256": "4f09ea1752a6b712a4894f5f4c99cc8ef78a615360c8f49c46a599a9c2a2cda8"
+    },
+    {
+      "method": "Strict-HDCTI + Hctx-P + CHCR",
+      "variant": "Hctx-P+CHCR",
+      "config": "/home/zry/workspace/HDCTI/configs/HDCTI_etcm_mention10_pair_stratified_chcr_no_dense_full.conf",
+      "config_sha256": "2a8150915b853176460ca86e1f7212a63965b88c71053ed26d619fce096a6a44",
+      "checkpoint": "/home/zry/workspace/HDCTI/saved_model/2026-07-17 17-42-26/hdcti_model.ckpt",
+      "checkpoint_index_sha256": "8dc133c6a2f150e6f7d9ede516acafc33436010c4602668098e19cd148d60bf6",
+      "checkpoint_data_sha256": "d75486bf8c470894a227195faed3851ebe63f90ff68f0ee913750cd5c379d08a"
+    }
+  ],
+  "interpretation_boundary": [
+    "Selection does not inspect checkpoint scores or Top-K outcomes.",
+    "Ingredient evidence is prohibited from training and model selection.",
+    "Potential Targets are explanatory consistency evidence, not independent truth."
+  ]
+}
