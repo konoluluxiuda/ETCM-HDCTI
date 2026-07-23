@@ -4,15 +4,15 @@
 
 15 条待核验 E 级候选已在任何 BindingDB、ChEMBL 或 PubMed 检索开始前
 冻结。每个 ETCM 案例保留 3 条候选，后续检索结果不能用于替换候选、调整
-模型、改变 checkpoint 或修改排名。
+模型、改变 checkpoint 或修改排名。45 个预注册数据库查询现已全部完成。
 
 ```text
 freeze_status=FROZEN_BEFORE_SEARCH
-verification_status=IN_PROGRESS
+verification_status=COMPLETE
 candidate_count=15
 query_count=45
-reviewed_candidate_count=3
-reviewed_query_count=9
+reviewed_candidate_count=15
+reviewed_query_count=45
 selection_seed=2026
 candidate_manifest_sha256=b6c68cb0d9e9cc55cd37d773ec099e0b8fc26c73c658609a79774cb78dd5fd01
 ```
@@ -24,7 +24,7 @@ candidate_manifest_sha256=b6c68cb0d9e9cc55cd37d773ec099e0b8fc26c73c658609a79774c
 | Schema | ARS-9 |
 | Artifact type | frozen evidence-verification worklist |
 | Freeze status | `FROZEN_BEFORE_SEARCH` |
-| Verification status | `IN_PROGRESS` |
+| Verification status | `COMPLETE` |
 | 数据范围 | ETCM2.0 mention10 fold 1 冻结 Top-K |
 | 是否用于训练 | 否 |
 | 是否用于模型/案例选择 | 否 |
@@ -92,29 +92,75 @@ results/etcm_topk_cases/fold1/context/context_annotated_topk.tsv
 单位、检索日期和人工备注。分子对接不能升级为直接结合证据；未找到证据也
 不能把候选写成真实负例。
 
-## 6. 首批检索试运行
+## 6. 实体身份核验
 
-为避免将外消旋 propranolol 或相反对映体误认为 dexpropranolol，先完成
-PubChem CID 21138 与 ChEMBL `CHEMBL275742` 的立体化学身份核对。二者
-InChIKey 均为 `AQHHHDLHHXJYJD-CQSZACIVSA-N`。
+检索前先按 CAS、PubChem、InChIKey 和 ChEMBL 解析精确化合物身份：
 
-| 序 | 候选 | 当前等级 | 核验结论 |
+| 成分 | PubChem CID | ChEMBL | InChIKey |
+|---|---:|---|---|
+| DEXPROPRANOLOL | 21138 | `CHEMBL275742` | `AQHHHDLHHXJYJD-CQSZACIVSA-N` |
+| gallocatechin gallate | 5276890 | `CHEMBL126079` | `WMBWREPUVVBILR-GHTZIAJQSA-N` |
+| (+)-Gallocatechin | 65084 | `CHEMBL125743` | `XMOCLSLCDHWDHP-SWLSCSKDSA-N` |
+| Sulfuretin | 5281295 | `CHEMBL490355` | `RGNXWPVNPFAADO-NSIKDUERSA-N` |
+| Quercetin | 5280343 | `CHEMBL50` | `REFJWTPEDVJJIY-UHFFFAOYSA-N` |
+
+因此，外消旋 propranolol、相反对映体、tea extract、gallocatechin gallate
+异构体、相关儿茶素和混合提取物均不能替代精确候选身份。
+
+## 7. 完整核验结果
+
+| 序 | 候选 | 最终等级 | 核验结论 |
 |---:|---|---|---|
 | 1 | DEXPROPRANOLOL–CA12 | E | BindingDB、ChEMBL 和 PubMed 当前检索未找到精确 pair 支持 |
 | 2 | DEXPROPRANOLOL–SIGMAR1 | B1 | ChEMBL human Sigma1 radioligand binding：Ki 1670 nM、IC50 3974 nM |
 | 3 | DEXPROPRANOLOL–MCL1 | E | PubMed 命中均为外消旋 propranolol 的间接研究，未找到精确 pair 支持 |
+| 4 | gallocatechin gallate–XBP1 | E | 三个来源均未找到精确 pair 支持 |
+| 5 | gallocatechin gallate–CA2 | E | PubMed 命中是 calcium/Ca2+ 歧义，不是 carbonic anhydrase II |
+| 6 | gallocatechin gallate–CA1 | E | PubMed 命中是海马 CA1 区域歧义，不是 carbonic anhydrase I |
+| 7 | (+)-Gallocatechin–MMP9 | E | 命中为 gallate、外消旋类似物或提取物，精确化合物身份不匹配 |
+| 8 | (+)-Gallocatechin–KDM1A | E | 三个来源均未找到精确 pair 支持 |
+| 9 | (+)-Gallocatechin–CA4 | E | 三个来源均未找到精确 pair 支持 |
+| 10 | Sulfuretin–PSMB5 | E | 三个来源均未找到精确 pair 支持 |
+| 11 | Sulfuretin–FLT3 | E | 三个来源均未找到精确 pair 支持 |
+| 12 | Sulfuretin–IGF1R | E | 三个来源均未找到精确 pair 支持 |
+| 13 | Quercetin–NR0B1 | E | PubMed 命中为扇贝 Dax1，不是 human NR0B1 |
+| 14 | Quercetin–PLAU | B1 | ChEMBL human uPA IC50 12100 nM；另有 quercetin-uPA 复合物 X-ray 结构 |
+| 15 | Quercetin–OPRD1 | Conflict | ChEMBL human OPRD1 binding AC50 >30000 nM；其他命中仅为 docking/网络药理 |
 
 SIGMAR1 记录的 ChEMBL molecule、target 和 UniProt 分别为
-`CHEMBL275742`、`CHEMBL287` 和 `Q99720`，与冻结候选一致。CA12 和 MCL1
-保留 E 级仅表示本轮规定来源中“尚未核验到支持”，不能解释为已经证明无作用。
+`CHEMBL275742`、`CHEMBL287` 和 `Q99720`，与冻结候选一致。所有 12 条
+保留 E 级的 pair 仅表示本轮规定来源中“尚未核验到支持”，不能解释为已经
+证明无作用。
 
-版本化进度账本：
+Quercetin–PLAU 的 ChEMBL 活性记录为 `13442121`，对应 human uPA
+`IC50=12100 nM`；PMID `28644504` 进一步报告 quercetin 结合 uPA S1
+pocket 的 X-ray 晶体结构。Quercetin–OPRD1 的 ChEMBL 活性记录
+`25153945` 为 `AC50 >30000 nM`，按原 Secondary Pharmacology Database
+的定义属于 assay ceiling 下的 inactive/very weak 结果，因此记为
+`Conflict`，不能被分子对接结果覆盖。
+
+最终 pair 级汇总：
+
+```text
+B1=2
+B2=0
+D=0
+E=12
+Conflict=1
+independently_supported=2/15 (13.33%)
+```
+
+这里的 `2/15` 是冻结候选的探索性命中率，不是模型总体 precision。冻结清单
+只覆盖五个案例各 3 条 E 级候选，而且没有随机抽取完整候选空间。E 级仍表示
+“规定来源中未核验到证据”，不能作为确认负例训练或评估模型。
+
+版本化核验账本：
 
 ```text
 configs/etcm_topk_evidence_progress.json
 ```
 
-## 7. 文件与复现
+## 8. 文件与复现
 
 跟踪配置：
 
@@ -139,8 +185,23 @@ results/etcm_topk_cases/manual_validation/
 python tools/prepare_etcm_topk_manual_validation.py
 ```
 
-## 8. 下一步
+## 9. 下一步
 
-按照 `validation_order=4..15` 继续执行 BindingDB、ChEMBL 和 PubMed
-检索并填写 `evidence_review.tsv`。全部 45 个数据库查询完成后，再按
-B1/B2/D/E/Conflict 汇总 pair 级结论；核验期间不改候选清单。
+独立证据核验已经完成，不再扩展检索来源以追逐更多命中。随后对三条有判别力
+的 pair 进行了页面路径审计：
+
+| Pair | C-H-D-P 路径数 | 处理 |
+|---|---:|---|
+| DEXPROPRANOLOL–SIGMAR1 | 0 | 展示排名变化和直接定量证据，不绘制机制路径 |
+| Quercetin–PLAU | 8 | 展示 JingDaJi 药材上下文；疾病路径仅作虚线假设 |
+| Quercetin–OPRD1 | 0 | 作为高排名 Conflict 失败案例 |
+
+因此不强行拼接 2–3 条 C-H-D-P 路径。代表案例已冻结到：
+
+```text
+configs/etcm_topk_representative_cases.json
+```
+
+下一步生成论文案例表和一张三面板图：两个 B1 正向案例、一个 Conflict
+案例。图中直接实验、模型侧 Herb 上下文和 post-hoc 数据库路径必须使用
+不同线型；路径选择和绘图不改变模型、checkpoint、排名或结果表。

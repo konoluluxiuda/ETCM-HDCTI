@@ -1,27 +1,81 @@
 {
-  "schema_version": 1,
-  "updated_at": "2026-07-23T14:44:22+08:00",
-  "verification_status": "IN_PROGRESS",
+  "schema_version": 2,
+  "updated_at": "2026-07-23T16:20:00+08:00",
+  "verification_status": "COMPLETE",
   "candidate_manifest_sha256": "b6c68cb0d9e9cc55cd37d773ec099e0b8fc26c73c658609a79774cb78dd5fd01",
   "frozen_candidate_count": 15,
-  "reviewed_candidate_count": 3,
-  "reviewed_query_count": 9,
+  "reviewed_candidate_count": 15,
+  "reviewed_query_count": 45,
   "total_query_count": 45,
-  "identity_resolution": {
-    "compound_name": "DEXPROPRANOLOL",
-    "pubchem_cid": 21138,
-    "pubchem_title": "Dexpropranolol",
-    "inchi_key": "AQHHHDLHHXJYJD-CQSZACIVSA-N",
-    "isomeric_smiles": "CC(C)NC[C@H](COC1=CC=CC2=CC=CC=C21)O",
-    "chembl_id": "CHEMBL275742",
-    "chembl_name": "DEXPROPRANOLOL",
-    "identity_status": "exact_stereochemical_match",
-    "source_urls": [
-      "https://pubchem.ncbi.nlm.nih.gov/compound/21138",
-      "https://www.ebi.ac.uk/chembl/explore/compound/CHEMBL275742"
-    ],
-    "exclusion_rule": "Racemic propranolol and the opposite enantiomer are not accepted as direct dexpropranolol evidence."
-  },
+  "identity_resolution": [
+    {
+      "compound_name": "DEXPROPRANOLOL",
+      "pubchem_cid": 21138,
+      "pubchem_title": "Dexpropranolol",
+      "inchi_key": "AQHHHDLHHXJYJD-CQSZACIVSA-N",
+      "chembl_id": "CHEMBL275742",
+      "identity_status": "exact_stereochemical_match",
+      "source_urls": [
+        "https://pubchem.ncbi.nlm.nih.gov/compound/21138",
+        "https://www.ebi.ac.uk/chembl/explore/compound/CHEMBL275742"
+      ],
+      "exclusion_rule": "Racemic propranolol and the opposite enantiomer are not accepted as direct dexpropranolol evidence."
+    },
+    {
+      "compound_name": "gallocatechin gallate",
+      "cas_number": "5127-64-0",
+      "pubchem_cid": 5276890,
+      "pubchem_title": "Gallocatechin Gallate",
+      "inchi_key": "WMBWREPUVVBILR-GHTZIAJQSA-N",
+      "chembl_id": "CHEMBL126079",
+      "identity_status": "cas_and_inchikey_match",
+      "source_urls": [
+        "https://pubchem.ncbi.nlm.nih.gov/compound/5276890",
+        "https://www.ebi.ac.uk/chembl/explore/compound/CHEMBL126079"
+      ],
+      "exclusion_rule": "Tea extract CID 1287 and (-)-gallocatechin gallate CID 199472 are not accepted as exact compound evidence."
+    },
+    {
+      "compound_name": "(+)-Gallocatechin",
+      "cas_number": "970-73-0|1617-55-6",
+      "pubchem_cid": 65084,
+      "pubchem_title": "Gallocatechin",
+      "inchi_key": "XMOCLSLCDHWDHP-SWLSCSKDSA-N",
+      "chembl_id": "CHEMBL125743",
+      "identity_status": "cas_and_inchikey_match",
+      "source_urls": [
+        "https://pubchem.ncbi.nlm.nih.gov/compound/65084",
+        "https://www.ebi.ac.uk/chembl/explore/compound/CHEMBL125743"
+      ],
+      "exclusion_rule": "Gallocatechin gallate, racemic gallate analogues and extracts containing related catechins are not accepted as exact (+)-gallocatechin evidence."
+    },
+    {
+      "compound_name": "Sulfuretin",
+      "cas_number": "120-05-8",
+      "pubchem_cid": 5281295,
+      "pubchem_title": "Sulfuretin",
+      "inchi_key": "RGNXWPVNPFAADO-NSIKDUERSA-N",
+      "chembl_id": "CHEMBL490355",
+      "identity_status": "cas_and_inchikey_match",
+      "source_urls": [
+        "https://pubchem.ncbi.nlm.nih.gov/compound/5281295",
+        "https://www.ebi.ac.uk/chembl/explore/compound/CHEMBL490355"
+      ]
+    },
+    {
+      "compound_name": "Quercetin",
+      "cas_number": "117-39-5",
+      "pubchem_cid": 5280343,
+      "pubchem_title": "Quercetin",
+      "inchi_key": "REFJWTPEDVJJIY-UHFFFAOYSA-N",
+      "chembl_id": "CHEMBL50",
+      "identity_status": "cas_and_inchikey_match",
+      "source_urls": [
+        "https://pubchem.ncbi.nlm.nih.gov/compound/5280343",
+        "https://www.ebi.ac.uk/chembl/explore/compound/CHEMBL50"
+      ]
+    }
+  ],
   "pair_results": [
     {
       "validation_order": 1,
@@ -32,9 +86,9 @@
       "evidence_grade": "E",
       "verification_verdict": "no_verified_support_in_current_search",
       "source_results": {
-        "BindingDB": "exact-structure query returned two other human targets and no CA12 record",
-        "ChEMBL": "zero exact CHEMBL275742-CHEMBL3242 activity records",
-        "PubMed": "zero exact-name or stereochemical-synonym pair records"
+        "BindingDB": "Exact-structure query returned two other human targets and no CA12 record.",
+        "ChEMBL": "Zero exact CHEMBL275742-CHEMBL3242 activity records.",
+        "PubMed": "Zero exact-name or stereochemical-synonym pair records."
       },
       "interpretation": "Unverified prediction, not a confirmed negative interaction."
     },
@@ -47,9 +101,9 @@
       "evidence_grade": "B1",
       "verification_verdict": "direct_quantitative_binding_support",
       "source_results": {
-        "BindingDB": "exact-structure query returned two other human targets and no SIGMAR1 record",
-        "ChEMBL": "human Sigma1 radioligand-binding assay; Ki=1670 nM and IC50=3974 nM",
-        "PubMed": "one broad query hit used S-propranolol and was rejected as an enantiomer mismatch"
+        "BindingDB": "Exact-structure query returned two other human targets and no SIGMAR1 record.",
+        "ChEMBL": "Human Sigma1 radioligand-binding assay; Ki=1670 nM and IC50=3974 nM.",
+        "PubMed": "One broad query hit used S-propranolol and was rejected as an enantiomer mismatch."
       },
       "primary_record": {
         "source": "ChEMBL",
@@ -89,13 +143,245 @@
       "evidence_grade": "E",
       "verification_verdict": "no_verified_support_in_current_search",
       "source_results": {
-        "BindingDB": "exact-structure query returned two other human targets and no MCL1 record",
-        "ChEMBL": "zero exact CHEMBL275742-CHEMBL4361 activity records",
-        "PubMed": "three broad propranolol-MCL1 hits were racemate-level or indirect pathway studies and were rejected as direct dexpropranolol evidence"
+        "BindingDB": "Exact-structure query returned two other human targets and no MCL1 record.",
+        "ChEMBL": "Zero exact CHEMBL275742-CHEMBL4361 activity records.",
+        "PubMed": "Broad hits concerned racemic propranolol or indirect biology, not direct dexpropranolol-MCL1 binding."
       },
       "interpretation": "Unverified prediction, not a confirmed negative interaction."
+    },
+    {
+      "validation_order": 4,
+      "compound_name": "gallocatechin gallate",
+      "gene_symbol": "XBP1",
+      "uniprot_accession": "P17861",
+      "chembl_target_id": "CHEMBL1741176",
+      "evidence_grade": "E",
+      "verification_verdict": "no_verified_support_in_current_search",
+      "source_results": {
+        "BindingDB": "Exact CHEMBL126079 structure returned BACE1 and DYRK1A records, but no XBP1 record.",
+        "ChEMBL": "Zero exact CHEMBL126079-CHEMBL1741176 activity records.",
+        "PubMed": "Zero exact compound-target pair records."
+      },
+      "interpretation": "Unverified prediction, not a confirmed negative interaction."
+    },
+    {
+      "validation_order": 5,
+      "compound_name": "gallocatechin gallate",
+      "gene_symbol": "CA2",
+      "uniprot_accession": "P00918",
+      "chembl_target_id": "CHEMBL205",
+      "evidence_grade": "E",
+      "verification_verdict": "no_verified_support_in_current_search",
+      "source_results": {
+        "BindingDB": "Exact CHEMBL126079 structure returned BACE1 and DYRK1A records, but no CA2 record.",
+        "ChEMBL": "Zero exact CHEMBL126079-CHEMBL205 activity records.",
+        "PubMed": "Five broad hits referred to calcium or Ca2+, not carbonic anhydrase II."
+      },
+      "interpretation": "Unverified prediction, not a confirmed negative interaction."
+    },
+    {
+      "validation_order": 6,
+      "compound_name": "gallocatechin gallate",
+      "gene_symbol": "CA1",
+      "uniprot_accession": "P00915",
+      "chembl_target_id": "CHEMBL261",
+      "evidence_grade": "E",
+      "verification_verdict": "no_verified_support_in_current_search",
+      "source_results": {
+        "BindingDB": "Exact CHEMBL126079 structure returned BACE1 and DYRK1A records, but no CA1 record.",
+        "ChEMBL": "Zero exact CHEMBL126079-CHEMBL261 activity records.",
+        "PubMed": "The only broad hit used CA1 as a hippocampal-region term, not carbonic anhydrase I."
+      },
+      "interpretation": "Unverified prediction, not a confirmed negative interaction."
+    },
+    {
+      "validation_order": 7,
+      "compound_name": "(+)-Gallocatechin",
+      "gene_symbol": "MMP9",
+      "uniprot_accession": "P14780",
+      "chembl_target_id": "CHEMBL321",
+      "evidence_grade": "E",
+      "verification_verdict": "rejected_compound_identity_mismatch",
+      "source_results": {
+        "BindingDB": "Exact CHEMBL125743 structure returned BCL2, MAPK14 and PTGS1 records, but no MMP9 record.",
+        "ChEMBL": "Zero exact CHEMBL125743-CHEMBL321 activity records.",
+        "PubMed": "MMP9 hits concerned gallocatechin gallate, racemic gallate analogues or extracts rather than exact (+)-gallocatechin."
+      },
+      "interpretation": "Related-catechin evidence cannot be transferred to this exact compound; the prediction remains unverified."
+    },
+    {
+      "validation_order": 8,
+      "compound_name": "(+)-Gallocatechin",
+      "gene_symbol": "KDM1A",
+      "uniprot_accession": "O60341",
+      "chembl_target_id": "CHEMBL6136",
+      "evidence_grade": "E",
+      "verification_verdict": "no_verified_support_in_current_search",
+      "source_results": {
+        "BindingDB": "Exact CHEMBL125743 structure returned three other targets and no KDM1A record.",
+        "ChEMBL": "Zero exact CHEMBL125743-CHEMBL6136 activity records.",
+        "PubMed": "Zero exact compound-target pair records."
+      },
+      "interpretation": "Unverified prediction, not a confirmed negative interaction."
+    },
+    {
+      "validation_order": 9,
+      "compound_name": "(+)-Gallocatechin",
+      "gene_symbol": "CA4",
+      "uniprot_accession": "P22748",
+      "chembl_target_id": "CHEMBL3729",
+      "evidence_grade": "E",
+      "verification_verdict": "no_verified_support_in_current_search",
+      "source_results": {
+        "BindingDB": "Exact CHEMBL125743 structure returned three other targets and no CA4 record.",
+        "ChEMBL": "Zero exact CHEMBL125743-CHEMBL3729 activity records.",
+        "PubMed": "Zero exact compound-target pair records."
+      },
+      "interpretation": "Unverified prediction, not a confirmed negative interaction."
+    },
+    {
+      "validation_order": 10,
+      "compound_name": "Sulfuretin",
+      "gene_symbol": "PSMB5",
+      "uniprot_accession": "P28074",
+      "chembl_target_id": "CHEMBL4662",
+      "evidence_grade": "E",
+      "verification_verdict": "no_verified_support_in_current_search",
+      "source_results": {
+        "BindingDB": "Exact CHEMBL490355 structure returned 16 other targets and no PSMB5 record.",
+        "ChEMBL": "Zero exact CHEMBL490355-CHEMBL4662 activity records.",
+        "PubMed": "Zero exact compound-target pair records."
+      },
+      "interpretation": "Unverified prediction, not a confirmed negative interaction."
+    },
+    {
+      "validation_order": 11,
+      "compound_name": "Sulfuretin",
+      "gene_symbol": "FLT3",
+      "uniprot_accession": "P36888",
+      "chembl_target_id": "CHEMBL1974",
+      "evidence_grade": "E",
+      "verification_verdict": "no_verified_support_in_current_search",
+      "source_results": {
+        "BindingDB": "Exact CHEMBL490355 structure returned 16 other targets and no FLT3 record.",
+        "ChEMBL": "Zero exact CHEMBL490355-CHEMBL1974 activity records.",
+        "PubMed": "Zero exact compound-target pair records."
+      },
+      "interpretation": "Unverified prediction, not a confirmed negative interaction."
+    },
+    {
+      "validation_order": 12,
+      "compound_name": "Sulfuretin",
+      "gene_symbol": "IGF1R",
+      "uniprot_accession": "P08069",
+      "chembl_target_id": "CHEMBL1957",
+      "evidence_grade": "E",
+      "verification_verdict": "no_verified_support_in_current_search",
+      "source_results": {
+        "BindingDB": "Exact CHEMBL490355 structure returned 16 other targets and no IGF1R record.",
+        "ChEMBL": "Zero exact CHEMBL490355-CHEMBL1957 activity records.",
+        "PubMed": "Zero exact compound-target pair records."
+      },
+      "interpretation": "Unverified prediction, not a confirmed negative interaction."
+    },
+    {
+      "validation_order": 13,
+      "compound_name": "Quercetin",
+      "gene_symbol": "NR0B1",
+      "uniprot_accession": "P51843",
+      "chembl_target_id": "CHEMBL1795094",
+      "evidence_grade": "E",
+      "verification_verdict": "no_verified_support_in_current_search",
+      "source_results": {
+        "BindingDB": "Exact CHEMBL50 structure returned 142 records across other targets and no NR0B1 record.",
+        "ChEMBL": "Zero exact CHEMBL50-CHEMBL1795094 activity records.",
+        "PubMed": "The only broad DAX1 hit concerned a scallop gene and was not human NR0B1 evidence."
+      },
+      "interpretation": "Unverified prediction, not a confirmed negative interaction."
+    },
+    {
+      "validation_order": 14,
+      "compound_name": "Quercetin",
+      "gene_symbol": "PLAU",
+      "uniprot_accession": "P00749",
+      "chembl_target_id": "CHEMBL3286",
+      "evidence_grade": "B1",
+      "verification_verdict": "direct_quantitative_and_structural_support",
+      "source_results": {
+        "BindingDB": "Exact CHEMBL50 structure returned 142 records across other targets and no PLAU record.",
+        "ChEMBL": "Direct human uPA assay reported IC50=12100 nM.",
+        "PubMed": "PMID 28644504 reported an X-ray crystal structure of quercetin bound in the uPA S1 pocket."
+      },
+      "primary_records": [
+        {
+          "source": "ChEMBL",
+          "molecule_chembl_id": "CHEMBL50",
+          "target_chembl_id": "CHEMBL3286",
+          "assay_chembl_id": "CHEMBL2428680",
+          "document_chembl_id": "CHEMBL2424526",
+          "activity_id": 13442121,
+          "organism": "Homo sapiens",
+          "measurement": {
+            "type": "IC50",
+            "relation": "=",
+            "value": 12100.0,
+            "unit": "nM"
+          },
+          "doi": "10.1007/s00044-013-0829-4",
+          "pmid": "24610996",
+          "source_url": "https://www.ebi.ac.uk/chembl/api/data/activity.json?molecule_chembl_id=CHEMBL50&target_chembl_id=CHEMBL3286&limit=20"
+        },
+        {
+          "source": "PubMed",
+          "study_type": "X-ray crystal structure of quercetin-uPA complex",
+          "doi": "10.1039/C6FO01825D",
+          "pmid": "28644504",
+          "source_url": "https://pubmed.ncbi.nlm.nih.gov/28644504/"
+        }
+      ]
+    },
+    {
+      "validation_order": 15,
+      "compound_name": "Quercetin",
+      "gene_symbol": "OPRD1",
+      "uniprot_accession": "P41143",
+      "chembl_target_id": "CHEMBL236",
+      "evidence_grade": "Conflict",
+      "verification_verdict": "direct_inactive_or_very_weak_assay_result",
+      "source_results": {
+        "BindingDB": "Exact CHEMBL50 structure returned opioid-family records for KOR and MOR, but no OPRD1 record.",
+        "ChEMBL": "Human OPRD1 binding panel reported AC50 > 30000 nM, classified by the source study as inactive at its assay ceiling.",
+        "PubMed": "Two broad hits provided only network-pharmacology or in-silico docking support."
+      },
+      "primary_record": {
+        "source": "ChEMBL",
+        "molecule_chembl_id": "CHEMBL50",
+        "target_chembl_id": "CHEMBL236",
+        "assay_chembl_id": "CHEMBL5291852",
+        "document_chembl_id": "CHEMBL5291721",
+        "activity_id": 25153945,
+        "organism": "Homo sapiens",
+        "measurement": {
+          "type": "AC50",
+          "relation": ">",
+          "value": 30000.0,
+          "unit": "nM"
+        },
+        "doi": "10.1038/s41467-023-40064-9",
+        "pmid": "37468498",
+        "source_url": "https://www.ebi.ac.uk/chembl/api/data/activity.json?molecule_chembl_id=CHEMBL50&target_chembl_id=CHEMBL236&limit=20"
+      },
+      "interpretation": "The frozen prediction conflicts with a direct high-concentration inactivity result; docking-only reports do not override that assay."
     }
   ],
+  "summary": {
+    "B1": 2,
+    "B2": 0,
+    "D": 0,
+    "E": 12,
+    "Conflict": 1,
+    "independently_supported_fraction": 0.13333333333333333
+  },
   "restrictions": {
     "used_for_training": false,
     "used_for_checkpoint_selection": false,

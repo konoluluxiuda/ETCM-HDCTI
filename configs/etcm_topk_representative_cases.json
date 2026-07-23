@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-07-23T16:40:00+08:00",
+  "freeze_status": "FROZEN_AFTER_EVIDENCE_REVIEW_BEFORE_FIGURE_DRAFTING",
+  "selection_scope": "ETCM2.0 mention10 fold 1 frozen Top-K manual-validation candidates",
+  "source_artifacts": {
+    "candidate_manifest": {
+      "path": "results/etcm_topk_cases/manual_validation/candidate_manifest.json",
+      "sha256": "b6c68cb0d9e9cc55cd37d773ec099e0b8fc26c73c658609a79774cb78dd5fd01"
+    },
+    "evidence_progress": {
+      "path": "configs/etcm_topk_evidence_progress.json",
+      "sha256": "f6e3d594d6762c734a08ecf1a85876173fdef9f7a10d3ab907d6a93ae333bf2b"
+    },
+    "context_annotated_topk": {
+      "path": "results/etcm_topk_cases/fold1/context/context_annotated_topk.tsv",
+      "sha256": "aebd2cd20cf15058ca38f4164fb79fbd5d13d8ad07341d49247196c333045b5d"
+    },
+    "mechanism_paths": {
+      "path": "results/etcm_topk_cases/fold1/context/mechanism_paths.tsv",
+      "sha256": "9769ba1f2ad2ba8eb31fa1bb06beadc802087a3a5f7394b10bce98c282952932"
+    }
+  },
+  "selection_rule": {
+    "positive_cases": "Include every frozen candidate graded B1.",
+    "failure_case": "Include every frozen candidate graded Conflict.",
+    "replacement_allowed": false,
+    "model_score_used_for_case_selection": false,
+    "path_count_used_for_case_selection": false
+  },
+  "representative_cases": [
+    {
+      "validation_order": 2,
+      "case_role": "direct_positive_with_context_rank_gain",
+      "compound_name": "DEXPROPRANOLOL",
+      "gene_symbol": "SIGMAR1",
+      "uniprot_accession": "Q99720",
+      "evidence_grade": "B1",
+      "ranks": {
+        "Strict-HDCTI": 13,
+        "Hctx-P": 7,
+        "Hctx-P+CHCR": 2
+      },
+      "rank_gain_vs_strict": {
+        "Hctx-P": 6,
+        "Hctx-P+CHCR": 11
+      },
+      "external_evidence": "Human Sigma1 radioligand binding: Ki=1670 nM and IC50=3974 nM.",
+      "chdp_path_count": 0,
+      "target_page_available": true,
+      "figure_use": "Positive rank-shift panel with direct quantitative evidence; do not draw a C-H-D-P path."
+    },
+    {
+      "validation_order": 14,
+      "case_role": "direct_positive_with_context_rank_gain_and_posthoc_path",
+      "compound_name": "Quercetin",
+      "gene_symbol": "PLAU",
+      "uniprot_accession": "P00749",
+      "evidence_grade": "B1",
+      "ranks": {
+        "Strict-HDCTI": 16,
+        "Hctx-P": 1,
+        "Hctx-P+CHCR": 5
+      },
+      "rank_gain_vs_strict": {
+        "Hctx-P": 15,
+        "Hctx-P+CHCR": 11
+      },
+      "external_evidence": "Human uPA IC50=12100 nM plus an X-ray structure of quercetin bound in the uPA S1 pocket.",
+      "chdp_path_count": 8,
+      "chdp_herb": {
+        "herb_id": "889",
+        "pinyin": "JingDaJi",
+        "latin_name": "Euphorbia pekinensis Rupr.",
+        "raw_page": "dataset/ETCM2.0/etcm_herbs/JingDaJi.json"
+      },
+      "target_page_available": false,
+      "figure_use": "Positive evidence-provenance panel. Show the Herb source as model-side context; any disease path must be dashed and labelled post-hoc hypothesis."
+    },
+    {
+      "validation_order": 15,
+      "case_role": "high_rank_conflict_case",
+      "compound_name": "Quercetin",
+      "gene_symbol": "OPRD1",
+      "uniprot_accession": "P41143",
+      "evidence_grade": "Conflict",
+      "ranks": {
+        "Strict-HDCTI": 3,
+        "Hctx-P": 4,
+        "Hctx-P+CHCR": 3
+      },
+      "rank_gain_vs_strict": {
+        "Hctx-P": -1,
+        "Hctx-P+CHCR": 0
+      },
+      "external_evidence": "Human OPRD1 binding AC50 >30000 nM; docking-only reports do not override the direct inactivity result.",
+      "chdp_path_count": 0,
+      "target_page_available": false,
+      "figure_use": "Failure-case panel demonstrating that a high model rank is not equivalent to validated activity."
+    }
+  ],
+  "figure_boundary": {
+    "direct_evidence_style": "solid",
+    "model_side_context_style": "solid_with_model_context_label",
+    "posthoc_database_path_style": "dashed",
+    "conflict_style": "red_cross_or_warning",
+    "causal_language_allowed": false,
+    "may_change_model_or_ranking": false
+  }
+}
