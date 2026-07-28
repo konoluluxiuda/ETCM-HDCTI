@@ -88,6 +88,21 @@ def unique_row(rows, dataset, variant):
     return matches[0]
 
 
+def unique_method_row(rows, dataset, method):
+    matches = [
+        row for row in rows
+        if row.get('dataset') == dataset
+        and row.get('method') == method
+        and row.get('status', 'OK') == 'OK'
+    ]
+    if len(matches) != 1:
+        raise ValueError(
+            'Expected one successful %s row for %s, found %d.'
+            % (method, dataset, len(matches))
+        )
+    return matches[0]
+
+
 def validate_config(row, strategy, variant):
     config_path = repository_path(row['config'])
     if not config_path.is_file():
@@ -137,6 +152,40 @@ def validate_config(row, strategy, variant):
     return config_path
 
 
+def validate_external_config(row, required):
+    config_path = repository_path(row['config'])
+    if not config_path.is_file():
+        raise FileNotFoundError('Missing result config: %s' % config_path)
+    if sha256_file(config_path) != row['config_sha256']:
+        raise ValueError('Config hash mismatch for %s.' % config_path)
+    config = parse_config(config_path)
+    common = {
+        'experiment.protocol': 'strict',
+        'split.strategy': 'pair_stratified',
+        'split.reuse': 'True',
+        'evaluation.setup': '-cv 5',
+        'evaluation.outer.test': 'True',
+        'early.stopping': 'True',
+        'pair.decoder': 'dot',
+        'random.seed': '2026',
+        'split.seed': '2026',
+        'validation.seed': '102026',
+        'num.factors': '64',
+        'num.max.epoch': '50',
+        'batch_size': '2000',
+    }
+    for key, expected in dict(common, **required).items():
+        if config.get(key) != expected:
+            raise ValueError(
+                '%s requires %s=%s.' % (config_path, key, expected)
+            )
+    if 'evaluation.fold.limit' in config:
+        raise ValueError(
+            'External full config must not limit folds: %s.' % config_path
+        )
+    return config_path
+
+
 def metric_record(row):
     record = {}
     for metric in METRICS:
@@ -159,6 +208,29 @@ def collect_random(manifest):
                 protocol='random_edge', dataset=dataset,
                 method=source['method'], variant=source['variant'],
                 source=str(path), config=str(config_path),
+                **metric_record(row)
+            ))
+    return collected
+
+
+def collect_external(manifest):
+    section = manifest['external_same_input']
+    path = check_file(section['results'], section['sha256'])
+    rows = read_tsv(path)
+    collected = []
+    for method in section['methods']:
+        for dataset in manifest['datasets']:
+            row = unique_method_row(rows, dataset, method['method'])
+            config_path = validate_external_config(
+                row,
+                method['required'],
+            )
+            collected.append(dict(
+                protocol='external_same_input',
+                dataset=dataset,
+                method=method['method'],
+                source=str(path),
+                config=str(config_path),
                 **metric_record(row)
             ))
     return collected
@@ -281,12 +353,23 @@ def delta_table(title, records, baseline, candidate, datasets):
     return lines
 
 
-def build_markdown(manifest, random_rows, cold_rows, calibrated_rows):
+def build_markdown(
+        manifest, random_rows, cold_rows, calibrated_rows,
+        external_rows=None):
     datasets = manifest['datasets']
     random_methods = [item['method'] for item in manifest['random_edge']['sources']]
     cold_methods = [
         item['method'] for item in manifest['compound_cold_start']['methods']
     ]
+    external_rows = external_rows or []
+    external_methods = [
+        item['method']
+        for item in manifest.get('external_same_input', {}).get('methods', [])
+    ]
+    external_reference = manifest.get('external_same_input', {}).get(
+        'reference_method',
+        external_methods[-1] if external_methods else None,
+    )
     lines = [
         '# 最终统一实验结果表',
         '',
@@ -300,41 +383,83 @@ def build_markdown(manifest, random_rows, cold_rows, calibrated_rows):
         '1. 普通 Strict 随机边五折', random_rows,
         random_methods, datasets,
     ))
+    section = 2
+    if external_rows:
+        final_method = random_methods[-1]
+        final_rows = [
+            row for row in random_rows if row['method'] == final_method
+        ]
+        comparison_rows = external_rows + final_rows
+        comparison_methods = external_methods + [final_method]
+        lines.extend([''])
+        lines.extend(metric_table(
+            '%d. 普通随机边同输入方法比较' % section,
+            comparison_rows,
+            comparison_methods,
+            datasets,
+        ))
+        section += 1
+        lines.extend([''])
+        lines.extend(delta_table(
+            '%d. 最终随机边模型相对 %s' % (
+                section,
+                external_reference,
+            ),
+            comparison_rows,
+            external_reference,
+            final_method,
+            datasets,
+        ))
+        section += 1
     lines.extend([''])
     lines.extend(delta_table(
-        '2. 随机边 Hctx-P 直接消融', random_rows,
+        '%d. 随机边 Hctx-P 直接消融' % section, random_rows,
         random_methods[0], random_methods[1], datasets,
     ))
+    section += 1
     lines.extend([''])
     lines.extend(delta_table(
-        '3. 随机边 CHCR 增量', random_rows,
+        '%d. 随机边 CHCR 增量' % section, random_rows,
         random_methods[1], random_methods[2], datasets,
     ))
+    section += 1
     lines.extend([''])
     lines.extend(metric_table(
-        '4. Compound cold-start 五折（固定阈值 0.5）', cold_rows,
+        '%d. Compound cold-start 五折（固定阈值 0.5）' % section,
+        cold_rows,
         cold_methods, datasets,
     ))
+    section += 1
     lines.extend([''])
     lines.extend(delta_table(
-        '5. Compound cold-start SDIS 增量（固定阈值 0.5）', cold_rows,
+        '%d. Compound cold-start SDIS 增量（固定阈值 0.5）' % section,
+        cold_rows,
         cold_methods[0], cold_methods[1], datasets,
     ))
+    section += 1
     lines.extend([''])
     lines.extend(metric_table(
-        '6. Compound cold-start（inner-validation 阈值）',
+        '%d. Compound cold-start（inner-validation 阈值）' % section,
         calibrated_rows, cold_methods, datasets, calibrated=True,
     ))
+    section += 1
     lines.extend([''])
     lines.extend(delta_table(
-        '7. Compound cold-start SDIS 校准指标增量', calibrated_rows,
+        '%d. Compound cold-start SDIS 校准指标增量' % section,
+        calibrated_rows,
         cold_methods[0], cold_methods[1], datasets,
     ))
+    section += 1
     lines.extend([
         '',
-        '## 8. 解释边界',
+        '## %d. 解释边界' % section,
         '',
         '- 随机边主配置为 `Hctx-P + CHCR`；CHCR 不进入 cold-start 主配置。',
+        '- 三种外部方法是共享匿名拓扑输入和 BCE 监督的适配基线，不是原论文'
+        '属性模型的原样复现。',
+        '- 最终随机边模型相对 R-GCN-CTI 在 SymMap2.0 和 ETCM2.0 mention10'
+        ' 取得更高 AUPR，在 TCMSP 基本持平，在 TCM-Suite 略低；不能声称'
+        '四库全部最优。',
         '- Cold-start 主配置为 `Hctx-P + SDIS`；AUC/AUPR 与阈值无关。',
         '- Cold-start 固定 `0.5` 阈值与 inner-validation 阈值必须同时报告。',
         '- 四库统一无稠密注意力的 cold-start NoContext 完整五折尚不存在，'
@@ -342,11 +467,11 @@ def build_markdown(manifest, random_rows, cold_rows, calibrated_rows):
         '- TCM-Suite 上 Hctx-P 相对 Strict-HDCTI AUPR 轻微下降，不能声称'
         ' Hctx-P 在四库全部提高。',
         '',
-        '## 9. 冻结来源',
+        '## %d. 冻结来源' % (section + 1),
         '',
     ])
     seen = []
-    for row in random_rows + cold_rows + calibrated_rows:
+    for row in random_rows + external_rows + cold_rows + calibrated_rows:
         if row['source'] not in seen:
             seen.append(row['source'])
     lines.extend('- `%s`' % path for path in seen)
@@ -357,16 +482,23 @@ def build_markdown(manifest, random_rows, cold_rows, calibrated_rows):
 def generate(manifest_path, output_path):
     manifest_path = repository_path(manifest_path)
     manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
-    if manifest.get('schema_version') != 1:
+    if manifest.get('schema_version') != 2:
         raise ValueError('Unsupported paper results manifest schema.')
     if len(manifest.get('datasets') or []) != 4:
         raise ValueError('Paper results manifest must freeze four datasets.')
     random_rows = collect_random(manifest)
+    external_rows = collect_external(manifest)
     cold_rows, calibrated_rows = collect_cold_start(manifest)
     output_path = repository_path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
-        build_markdown(manifest, random_rows, cold_rows, calibrated_rows),
+        build_markdown(
+            manifest,
+            random_rows,
+            cold_rows,
+            calibrated_rows,
+            external_rows=external_rows,
+        ),
         encoding='utf-8',
     )
     return output_path

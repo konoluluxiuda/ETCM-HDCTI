@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "datasets": [
     "TCM-Suite",
     "TCMSP",
@@ -25,6 +25,40 @@
         "variant": "Hctx-P+CHCR",
         "results": "results/batch_runs/no_dense_chcr_full_20260717_171403/results.tsv",
         "sha256": "dad58154867b3628a08431af69c4d9e225eff889d92d761a80d56ab8fb955e35"
+      }
+    ]
+  },
+  "external_same_input": {
+    "results": "results/batch_runs/external_baselines_full_20260728_152020/results.tsv",
+    "sha256": "bf03faffbec11ad809f4b63f418d45c6ad2c66c7df973ffbae48472eb4095770",
+    "reference_method": "R-GCN-CTI",
+    "methods": [
+      {
+        "method": "Dual-HGNN-CTI",
+        "required": {
+          "model.name": "HDCTI",
+          "encoder.profile": "dual_hgnn_cti",
+          "attention.max.nodes": "0",
+          "context.interaction": "False",
+          "counterfactual.context": "False"
+        }
+      },
+      {
+        "method": "LightGCN-CTI",
+        "required": {
+          "model.name": "LightGCNCTI",
+          "lightgcn.layers": "3",
+          "lightgcn.objective": "bce"
+        }
+      },
+      {
+        "method": "R-GCN-CTI",
+        "required": {
+          "model.name": "RGCNCTI",
+          "rgcn.layers": "2",
+          "rgcn.activation": "relu",
+          "rgcn.objective": "bce"
+        }
       }
     ]
   },

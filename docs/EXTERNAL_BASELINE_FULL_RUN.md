@@ -88,3 +88,21 @@ HDCTI_BATCH_DIR=results/batch_runs/external_baselines_full_<timestamp> \
 
 原 HDCTI 论文报告的八模型结果应保留在独立的 Legacy 文献比较表中，不与本批
 Strict 结果合并计算增量或显著性。
+
+## 5. 已完成批次
+
+2026-07-28 的冻结批次已完成 12/12 个任务：
+
+```text
+results/batch_runs/external_baselines_full_20260728_152020/
+```
+
+结果文件 SHA-256 为：
+
+```text
+bf03faffbec11ad809f4b63f418d45c6ad2c66c7df973ffbae48472eb4095770
+```
+
+该哈希和逐行配置哈希已写入 `configs/paper_results_manifest.json`，并由
+`tools/build_paper_results_tables.py` 在生成
+`FINAL_RESULTS_TABLES.md` 前自动核验。
