@@ -200,6 +200,21 @@ R-GCN：使用 H-C、fold 训练 C-P、P-D 异构图
 论文性能结论。实现边界和运行命令见
 [LIGHTGCN_CTI_BASELINE.md](LIGHTGCN_CTI_BASELINE.md)。
 
+截至 2026-07-28，第三个基线 `R-GCN-CTI` 已实现并完成四库单折 pilot。它把
+H-C、inner-train positive C-P 和 P-D 组织成四类节点、六类有向关系的异构图，
+采用两层关系特异稀疏传播、Dot decoder 和固定 pair BCE。C-P 传播边仍严格排除
+validation 与 outer-test 正边。
+
+| 数据集 | Validation AUPR | 最佳 epoch | 运行时间 |
+|---|---:|---:|---:|
+| TCM-Suite | 0.993539 | 4 | 9.3s |
+| TCMSP | 0.981896 | 2 | 9.2s |
+| SymMap2.0 | 0.945934 | 2 | 9.0s |
+| ETCM2.0 mention10 | 0.974539 | 2 | 35.1s |
+
+四库均稳定完成，适配可行性通过。结果只决定进入正式五折，不作为最终性能
+结论，详见 [RGCN_CTI_BASELINE.md](RGCN_CTI_BASELINE.md)。
+
 ### 步骤 C：有条件恢复属性模型
 
 若作者提供完整属性输入，优先复现一个序列模型和一个分子图模型，例如
@@ -213,5 +228,6 @@ HyperAttentionDTI 与 DrugBAN。若只能自行补全部分实体，则仅形成
 3. 不继续为跨库多模态门槛进行高成本人工补全。
 4. `Dual-HGNN-CTI` 代码与四库单折 pilot 已完成，可进入五折正式比较。
 5. `LightGCN-CTI` 四库单折 pilot 已完成并通过，可进入五折正式比较。
-6. 下一项实现 `R-GCN-CTI`，补齐异构关系图对照后再统一启动三种外部基线五折。
-7. 获得作者材料后，再把可原样复现的 HDCTI 对比模型补入 Strict 管线。
+6. `R-GCN-CTI` 四库单折 pilot 已完成并通过，可进入五折正式比较。
+7. 下一步统一生成并运行三种外部基线冻结五折，不在 pilot 间调参。
+8. 获得作者材料后，再把可原样复现的 HDCTI 对比模型补入 Strict 管线。

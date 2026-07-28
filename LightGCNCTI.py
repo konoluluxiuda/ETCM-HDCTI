@@ -24,6 +24,10 @@ from util.model_components import EarlyStoppingTracker, resolve_early_stopping
 class LightGCNCTI(herbRecommender):
     """Same-input LightGCN adaptation for strict C-P prediction."""
 
+    checkpoint_filename = 'lightgcn_cti_model.ckpt'
+    metadata_filename = 'lightgcn_cti.json'
+    metadata_label = 'LightGCN'
+
     def readConfiguration(self):
         super(LightGCNCTI, self).readConfiguration()
         incompatible = []
@@ -211,6 +215,22 @@ class LightGCNCTI(herbRecommender):
             return float(roc_auc_score(labels, scores))
         raise ValueError('Unsupported validation metric: %s' % metric)
 
+    def buildTrainingMetadata(self):
+        graph = {
+            key: value
+            for key, value in self.graph_metadata.items()
+            if key not in {'indices', 'values'}
+        }
+        graph['shape'] = list(graph['shape'])
+        return {
+            'model_role': 'LightGCN-CTI same-input BCE adaptation',
+            'layers': self.n_layers,
+            'aggregation': 'uniform_mean',
+            'objective': self.objective,
+            'graph_source': 'strict_inner_train_positive_C-P',
+            'graph': graph,
+        }
+
     def trainModel(self):
         self.sess.run(tf.global_variables_initializer())
         early_stopping = resolve_early_stopping(self.config)
@@ -239,7 +259,7 @@ class LightGCNCTI(herbRecommender):
         current_time = strftime("%Y-%m-%d %H-%M-%S", localtime(time()))
         model_dir = os.path.join('./saved_model', current_time)
         os.makedirs(model_dir, exist_ok=True)
-        model_path = os.path.join(model_dir, 'lightgcn_cti_model.ckpt')
+        model_path = os.path.join(model_dir, self.checkpoint_filename)
         saver = tf.train.Saver(max_to_keep=1)
 
         total_batches = int(np.ceil(float(self.train_size) / self.batch_size))
@@ -351,25 +371,13 @@ class LightGCNCTI(herbRecommender):
         state = self.fetchModelState()
         self.u = state['compound']
         self.i = state['protein']
-        metadata = {
-            'model_role': 'LightGCN-CTI same-input BCE adaptation',
-            'layers': self.n_layers,
-            'aggregation': 'uniform_mean',
-            'objective': self.objective,
-            'graph_source': 'strict_inner_train_positive_C-P',
-            'graph': {
-                key: value
-                for key, value in self.graph_metadata.items()
-                if key not in {'indices', 'values'}
-            },
-            'early_stopping': self.early_stopping_summary,
-        }
-        metadata['graph']['shape'] = list(metadata['graph']['shape'])
-        metadata_path = os.path.join(model_dir, 'lightgcn_cti.json')
+        metadata = self.buildTrainingMetadata()
+        metadata['early_stopping'] = self.early_stopping_summary
+        metadata_path = os.path.join(model_dir, self.metadata_filename)
         with open(metadata_path, 'w', encoding='utf-8') as handle:
             json.dump(metadata, handle, ensure_ascii=False, indent=2)
             handle.write('\n')
-        print('LightGCN metadata: %s' % metadata_path)
+        print('%s metadata: %s' % (self.metadata_label, metadata_path))
         print('模型权重保存成功: %s' % model_path)
 
     def predictForPairs(self, compound_indices, protein_indices):
