@@ -189,7 +189,7 @@ Herb context 与可解释路径
 | 加强 | 四库统一 cold-start NoContext 完整五折缺失 | 当前仅有单折 Pilot；ETCM 旧五折也不是统一 `attention.max.nodes=0` 口径 | 不阻塞 SDIS 相对匹配 Hctx-P 的直接消融；若终稿需要展示 Hctx-P 的四库 cold-start 绝对贡献，再补四个 NoContext 五折 |
 | 可选 | 未形成统一硬件复杂度 benchmark | 可能用于回应 CHCR 训练成本与 SDIS 部署代价，但不影响主要有效性结论 | 正文仅报告理论增量：Hctx-P 少量参数、CHCR 仅训练期开销、SDIS 无参数；审稿明确要求时再补硬件实测 |
 | 已完成 | ETCM Top-K 外部证据闭环 | 数据贡献和中医药解释需要独立于训练数据的证据边界 | 15 个冻结 pair 的 45 个查询已完成；已冻结 2 个 B1 正向案例和 1 个 Conflict 失败案例，待制作论文图 |
-| 已完成 | 同一 Strict 协议下的外部同输入对比表 | Dual-HGNN-CTI、LightGCN-CTI 与 R-GCN-CTI 的四库 12 个外层五折任务全部完成；R-GCN 是三个基线中最强者。最终随机边模型相对 R-GCN 的 macro AUPR 为 `+0.001408`，在 SymMap/ETCM 较高、TCMSP 基本持平、TCM-Suite 略低 | 结果已通过文件与配置哈希接入 `FINAL_RESULTS_TABLES.md`；停止库特定调参。作者材料若到达，再追加可原样复现的属性模型 |
+| 已完成 | 同一 Strict 协议下的外部同输入对比表 | Dual-HGNN-CTI、LightGCN-CTI、R-GCN-CTI 与稀疏 HGT-CTI 的四库 16 个外层五折任务全部完成；R-GCN 是四个基线中最强者。最终随机边模型相对 R-GCN 的 macro AUPR 为 `+0.001408`，在 SymMap/ETCM 较高、TCMSP 基本持平、TCM-Suite 略低 | 两个冻结结果源及逐行配置哈希已接入 `FINAL_RESULTS_TABLES.md`；HGT 使用统一 64 入邻居上限，其 ETCM 结果不代表无采样完整 HGT。停止库特定调参；作者材料若到达，再追加可原样复现的属性模型 |
 | 加强 | 除 ETCM CHCR 外，其他最终配置主要为单训练 seed | fold 方差不能代表初始化稳定性 | 在主表冻结后选择一个代表库补 3 seed，或在局限性中明确披露 |
 | 可选 | disease-aware / target cold-start 未形成四库最终结果 | 可增强对原论文和困难泛化场景的覆盖 | 仅在主表完成且计算预算允许时追加，不阻塞当前模型冻结 |
 
@@ -212,8 +212,8 @@ Strict-HDCTI + Hctx-P, Hctx-P on
 ETCM Top-K 证据闭环也已完成，见
 [ETCM_TOPK_MANUAL_VALIDATION.md](ETCM_TOPK_MANUAL_VALIDATION.md)。两个 B1
 正向案例和一个 Conflict 失败案例已经按证据等级自动冻结，不根据模型分数或
-路径数量替换。同一 Strict 协议下的外部拓扑基线和代表案例图也均已完成。
-当前方法实验不再扩展新模块；下一阶段冻结方法搜索与主结果，转向论文
-Methods、Results 和局限性段落的正式写作。
+路径数量替换。同一 Strict 协议下的四种外部拓扑基线和代表案例图也均已完成。
+当前方法实验和外部同输入基线实验均已冻结，不再扩展新模块或进行数据库特定
+调参。下一阶段转向论文 Methods、Results 和局限性段落的正式写作。
 
 执行协议、预注册门槛和输出文件见 [HCTX_NO_DENSE_ABLATION.md](HCTX_NO_DENSE_ABLATION.md)。当前实现会在运行前校验四库配置 SHA-256，并只允许 `model.variant`、`context.interaction` 与 `context.herb_protein` 三项不同；完成后自动输出逐折配对结果和 `PASS/NO-GO` 判定。

@@ -103,6 +103,20 @@ def unique_method_row(rows, dataset, method):
     return matches[0]
 
 
+def unique_dataset_row(rows, dataset):
+    matches = [
+        row for row in rows
+        if row.get('dataset') == dataset
+        and row.get('status', 'OK') == 'OK'
+    ]
+    if len(matches) != 1:
+        raise ValueError(
+            'Expected one successful row for %s, found %d.'
+            % (dataset, len(matches))
+        )
+    return matches[0]
+
+
 def validate_config(row, strategy, variant):
     config_path = repository_path(row['config'])
     if not config_path.is_file():
@@ -215,12 +229,21 @@ def collect_random(manifest):
 
 def collect_external(manifest):
     section = manifest['external_same_input']
-    path = check_file(section['results'], section['sha256'])
-    rows = read_tsv(path)
+    source_cache = {}
     collected = []
     for method in section['methods']:
+        results_path = method.get('results', section['results'])
+        results_hash = method.get('sha256', section['sha256'])
+        source_key = (results_path, results_hash)
+        if source_key not in source_cache:
+            path = check_file(results_path, results_hash)
+            source_cache[source_key] = (path, read_tsv(path))
+        path, rows = source_cache[source_key]
         for dataset in manifest['datasets']:
-            row = unique_method_row(rows, dataset, method['method'])
+            if rows and 'method' in rows[0]:
+                row = unique_method_row(rows, dataset, method['method'])
+            else:
+                row = unique_dataset_row(rows, dataset)
             config_path = validate_external_config(
                 row,
                 method['required'],
@@ -366,6 +389,7 @@ def build_markdown(
         item['method']
         for item in manifest.get('external_same_input', {}).get('methods', [])
     ]
+    external_method_count = len(external_methods)
     external_reference = manifest.get('external_same_input', {}).get(
         'reference_method',
         external_methods[-1] if external_methods else None,
@@ -455,8 +479,10 @@ def build_markdown(
         '## %d. 解释边界' % section,
         '',
         '- 随机边主配置为 `Hctx-P + CHCR`；CHCR 不进入 cold-start 主配置。',
-        '- 三种外部方法是共享匿名拓扑输入和 BCE 监督的适配基线，不是原论文'
-        '属性模型的原样复现。',
+        '- %d 种外部方法是共享匿名拓扑输入和 BCE 监督的适配基线，不是'
+        '原论文属性模型的原样复现。' % external_method_count,
+        '- HGT-CTI 采用四库统一的每关系/目标节点 64 入邻居上限；其 ETCM'
+        ' 结果不能解释为无采样完整 HGT 的性能。',
         '- 最终随机边模型相对 R-GCN-CTI 在 SymMap2.0 和 ETCM2.0 mention10'
         ' 取得更高 AUPR，在 TCMSP 基本持平，在 TCM-Suite 略低；不能声称'
         '四库全部最优。',

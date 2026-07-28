@@ -54,7 +54,7 @@ class PaperResultsTablesTest(unittest.TestCase):
                 'reference_method': 'R-GCN',
                 'methods': [
                     {'method': method}
-                    for method in ('Dual', 'LightGCN', 'R-GCN')
+                    for method in ('Dual', 'LightGCN', 'R-GCN', 'HGT')
                 ]
             },
             'compound_cold_start': {
@@ -79,7 +79,9 @@ class PaperResultsTablesTest(unittest.TestCase):
         external_rows = [
             record(dataset, method, 0.78 + index * 0.01)
             for dataset in datasets
-            for index, method in enumerate(('Dual', 'LightGCN', 'R-GCN'))
+            for index, method in enumerate(
+                ('Dual', 'LightGCN', 'R-GCN', 'HGT')
+            )
         ]
 
         markdown = build_markdown(
@@ -93,6 +95,8 @@ class PaperResultsTablesTest(unittest.TestCase):
         self.assertIn('普通 Strict 随机边五折', markdown)
         self.assertIn('普通随机边同输入方法比较', markdown)
         self.assertIn('最终随机边模型相对 R-GCN', markdown)
+        self.assertIn('HGT', markdown)
+        self.assertIn('4 种外部方法', markdown)
         self.assertIn('Compound cold-start 五折', markdown)
         self.assertIn('**+0.010000**', markdown)
         self.assertIn('NoContext 完整五折尚不存在', markdown)

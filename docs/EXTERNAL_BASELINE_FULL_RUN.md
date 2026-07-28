@@ -2,20 +2,21 @@
 
 ## 1. 实验目的
 
-本批次在相同 Strict 数据划分、训练监督和评价流程下比较三类拓扑基线：
+本工作在相同 Strict 数据划分、训练监督和评价流程下比较四类拓扑基线：
 
 | 模型 | 输入图 | 论文中的准确命名 |
 |---|---|---|
 | `Dual-HGNN-CTI` | H-C 成分超图、P-D 蛋白超图 | `HGHDA-inspired Dual-HGNN-CTI` |
 | `LightGCN-CTI` | 当前 fold 训练 C-P 二部图 | `LightGCN-CTI (same-input BCE adaptation)` |
 | `R-GCN-CTI` | H-C、当前 fold 训练 C-P、P-D 六类有向关系 | `R-GCN-CTI (same-input adaptation)` |
+| `HGT-CTI` | 同一六关系异构图，统一稀疏关系注意力 | `HGT-CTI (same-input sparse attention adaptation)` |
 
 这些模型用于补充相同输入条件下的结构比较，不能写成对原论文中依赖 SMILES、
 蛋白序列或其他属性的模型进行了原样复现。
 
 ## 2. 冻结协议
 
-12 个正式配置统一使用：
+前三种模型的 12 个正式配置和后续 HGT 的 4 个正式配置统一使用：
 
 ```text
 experiment.protocol=strict
@@ -50,10 +51,16 @@ pair.decoder=dot
 ./run_external_baselines_full_batch.sh --dry-run
 ```
 
-顺序运行 12 个正式五折任务：
+顺序运行前三种模型的 12 个正式五折任务：
 
 ```bash
 ./run_external_baselines_full_batch.sh
+```
+
+HGT 通过四库 pilot 后使用独立冻结批次：
+
+```bash
+./run_hgt_cti_full_batch.sh
 ```
 
 批处理会写入：
@@ -106,3 +113,18 @@ bf03faffbec11ad809f4b63f418d45c6ad2c66c7df973ffbae48472eb4095770
 该哈希和逐行配置哈希已写入 `configs/paper_results_manifest.json`，并由
 `tools/build_paper_results_tables.py` 在生成
 `FINAL_RESULTS_TABLES.md` 前自动核验。
+
+HGT 独立冻结批次也已完成 4/4 个任务：
+
+```text
+results/batch_runs/hgt_cti_full_20260728_181436/
+```
+
+结果文件 SHA-256：
+
+```text
+64cff4189c0a8b7166b4d27dadac9097a17eff320c96066581a0eb9b50776a64
+```
+
+至此，同输入外部比较共包含 4 个方法、16 个四库外层五折任务。HGT 采用统一
+每关系/目标节点 64 入邻居上限，其 ETCM 结果不能解释为无采样完整 HGT 性能。

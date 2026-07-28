@@ -59,6 +59,20 @@
           "rgcn.activation": "relu",
           "rgcn.objective": "bce"
         }
+      },
+      {
+        "method": "HGT-CTI",
+        "results": "results/batch_runs/hgt_cti_full_20260728_181436/results.tsv",
+        "sha256": "64cff4189c0a8b7166b4d27dadac9097a17eff320c96066581a0eb9b50776a64",
+        "required": {
+          "model.name": "HGTCTI",
+          "hgt.layers": "2",
+          "hgt.heads": "2",
+          "hgt.activation": "gelu",
+          "hgt.objective": "bce",
+          "hgt.max.neighbors": "64",
+          "hgt.sampling.seed": "2026"
+        }
       }
     ]
   },
