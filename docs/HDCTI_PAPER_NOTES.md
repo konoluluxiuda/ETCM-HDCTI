@@ -266,6 +266,12 @@ HGHDA
 
 其中 HGHDA 是作者此前面向 herb-disease 超边关联预测的模型；HDCTI 则直接优化 compound 和 target 节点表示以预测 CTI。
 
+需要注意，论文基线章节没有公开八个模型在三套匿名关系数据上的属性恢复、
+任务适配、超参数和共用 fold；官方仓库也未包含对应基线代码、SMILES 或蛋白
+序列。原论文表 2 可作为 Legacy 文献结果引用，但不能自动等同于当前 Strict
+协议下的复现结果。完整边界与执行顺序见
+[HDCTI 对比模型复现审计](HDCTI_BASELINE_REPRODUCTION_AUDIT.md)。
+
 ## 6. 主要结果
 
 ### 6.1 表 2：随机划分下的 HDCTI 结果
@@ -496,4 +502,3 @@ batch shuffle seed
 4. 随机五折结果明显高于 disease-aware 结果，不能只报告随机边划分。
 5. 当前公开代码行为不完全等于论文文字描述，必须区分 Legacy、paper-faithful 和 Strict 三类实现。
 6. ETCM2.0 的 full self-attention 主要受 $O(N^2)$ 节点规模限制，而不是数据目录文件大小限制。
-

@@ -29,6 +29,7 @@ from util.model_components import (
     resolve_context_mask_training,
     resolve_counterfactual_context,
     resolve_early_stopping,
+    resolve_encoder_profile,
     resolve_global_token_attention,
     resolve_hyperedge_attention,
     resolve_herb_context_attention,
@@ -283,6 +284,7 @@ class HDCTI(herbRecommender):
         self.n_layer = 2
         self.weights={}
         self.attention_weights = {}
+        self.encoder_profile = resolve_encoder_profile(self.config)
         self.context_terms = resolve_context_terms(self.config)
         self.use_context_interaction = any(self.context_terms.values())
         self.herb_context_attention = resolve_herb_context_attention(self.config)
@@ -292,6 +294,53 @@ class HDCTI(herbRecommender):
         self.hyperedge_attention = resolve_hyperedge_attention(self.config)
         self.global_token_attention = resolve_global_token_attention(self.config)
         self.inductive_context = resolve_inductive_context(self.config)
+        self.pair_decoder = resolve_pair_decoder(self.config)
+        if self.encoder_profile['external_baseline']:
+            incompatible_components = []
+            if getattr(self.data, 'protocol', 'legacy') != 'strict':
+                incompatible_components.append('experiment.protocol!=strict')
+            if self.use_context_interaction:
+                incompatible_components.append('context.interaction')
+            if self.counterfactual_context['enabled']:
+                incompatible_components.append('counterfactual.context')
+            if self.context_mask_training['enabled']:
+                incompatible_components.append('context.mask.training')
+            if self.support_router['enabled']:
+                incompatible_components.append('support.router')
+            if self.hyperedge_attention['enabled']:
+                incompatible_components.append('hyperedge.attention')
+            if self.global_token_attention['enabled']:
+                incompatible_components.append('global.token.attention')
+            if self.inductive_context['enabled']:
+                incompatible_components.append('inductive.context')
+            if self.herb_context_attention['mode'] != 'static':
+                incompatible_components.append('context.herb_protein.mode')
+            if self.pair_decoder['type'] != 'dot':
+                incompatible_components.append('pair.decoder')
+            if (
+                not self.config.contains('attention.max.nodes')
+                or int(self.config['attention.max.nodes']) != 0
+            ):
+                incompatible_components.append('attention.max.nodes')
+            if incompatible_components:
+                raise ValueError(
+                    'dual_hgnn_cti is a frozen same-input baseline; incompatible '
+                    'settings: %s.' % ', '.join(incompatible_components)
+                )
+        print(
+            'Encoder profile: %s (self_gating=%s, pagerank=%s, '
+            'dense_full_attention=%s, node_dimension_attention=%s).' % (
+                self.encoder_profile['name'],
+                'on' if self.encoder_profile['use_self_gating'] else 'off',
+                'on' if self.encoder_profile['use_pagerank'] else 'off',
+                'on' if self.encoder_profile[
+                    'use_dense_full_attention'
+                ] else 'off',
+                'on' if self.encoder_profile[
+                    'use_node_dimension_attention'
+                ] else 'off',
+            )
+        )
         if (
             self.hyperedge_attention['enabled']
             and self.global_token_attention['enabled']
@@ -503,7 +552,6 @@ class HDCTI(herbRecommender):
                     self.context_mask_training['weight'],
                 )
             )
-        self.pair_decoder = resolve_pair_decoder(self.config)
         print(
             'Candidate context terms: C-Dctx=%s, Hctx-P=%s, Hctx-Dctx=%s' % (
                 'on' if self.context_terms['compound_disease'] else 'off',
@@ -546,8 +594,20 @@ class HDCTI(herbRecommender):
         attention_max_nodes = None
         if self.config.contains('attention.max.nodes'):
             attention_max_nodes = int(self.config['attention.max.nodes'])
-        use_compound_full_attention = attention_max_nodes is None or self.num_compounds <= attention_max_nodes
-        use_protein_full_attention = attention_max_nodes is None or self.num_proteins <= attention_max_nodes
+        use_compound_full_attention = (
+            self.encoder_profile['use_dense_full_attention']
+            and (
+                attention_max_nodes is None
+                or self.num_compounds <= attention_max_nodes
+            )
+        )
+        use_protein_full_attention = (
+            self.encoder_profile['use_dense_full_attention']
+            and (
+                attention_max_nodes is None
+                or self.num_proteins <= attention_max_nodes
+            )
+        )
         global_attention_conflicts = (
             self.global_token_attention['hc_enabled']
             and use_compound_full_attention
@@ -560,26 +620,49 @@ class HDCTI(herbRecommender):
                 'HILGA replaces dense full-node attention; set '
                 'attention.max.nodes=0 for HILGA experiments.'
             )
-        if not use_compound_full_attention:
+        if not self.encoder_profile['use_dense_full_attention']:
+            print('Dense full-node self-attention disabled by encoder profile.')
+        elif not use_compound_full_attention:
             print('Skipping compound full self-attention: nodes=%d > attention.max.nodes=%d' %
                   (self.num_compounds, attention_max_nodes))
-        if not use_protein_full_attention:
+        if (
+            self.encoder_profile['use_dense_full_attention']
+            and not use_protein_full_attention
+        ):
             print('Skipping protein full self-attention: nodes=%d > attention.max.nodes=%d' %
                   (self.num_proteins, attention_max_nodes))
 
 
 
-        if getattr(self.data, 'protocol', 'legacy') == 'strict':
-            pr_compound_embeddings, _ = bipartite_pagerank(cp)
-            pr_protein_embeddings, _ = bipartite_pagerank(pd)
-            print('Strict PageRank: fold training C-P graph with type-safe bipartite node IDs.')
+        pr_compound_embeddings = None
+        pr_protein_embeddings = None
+        if self.encoder_profile['use_pagerank']:
+            if getattr(self.data, 'protocol', 'legacy') == 'strict':
+                pr_compound_embeddings, _ = bipartite_pagerank(cp)
+                pr_protein_embeddings, _ = bipartite_pagerank(pd)
+                print(
+                    'Strict PageRank: fold training C-P graph with type-safe '
+                    'bipartite node IDs.'
+                )
+            else:
+                pr_compound = self.buildGraphAndPageRank(cp)
+                pr_protein = self.buildGraphAndPageRank(pd)
+                pr_compound_embeddings = np.array([
+                    pr_compound.get(i, 0)
+                    for i in range(self.num_compounds)
+                ])
+                pr_protein_embeddings = np.array([
+                    pr_protein.get(i, 0)
+                    for i in range(self.num_proteins)
+                ])
+            pr_compound_embeddings = np.reshape(
+                pr_compound_embeddings, (self.num_compounds, 1)
+            )
+            pr_protein_embeddings = np.reshape(
+                pr_protein_embeddings, (self.num_proteins, 1)
+            )
         else:
-            pr_compound = self.buildGraphAndPageRank(cp)
-            pr_protein = self.buildGraphAndPageRank(pd)
-            pr_compound_embeddings = np.array([pr_compound.get(i, 0) for i in range(self.num_compounds)])
-            pr_protein_embeddings = np.array([pr_protein.get(i, 0) for i in range(self.num_proteins)])
-        pr_compound_embeddings = np.reshape(pr_compound_embeddings, (self.num_compounds, 1))
-        pr_protein_embeddings = np.reshape(pr_protein_embeddings, (self.num_proteins, 1))
+            print('PageRank weighting disabled by encoder profile.')
 
 
         initializer = tf.variance_scaling_initializer(scale=2.0)
@@ -587,25 +670,36 @@ class HDCTI(herbRecommender):
         for i in range(self.n_layer):
             self.weights['layer_%d' %(i+1)] = tf.Variable(initializer([self.emb_size, self.emb_size]), name='JU_%d' % (i + 1))
             self.weights['layer_1_%d' %(i+1)] = tf.Variable(initializer([self.emb_size, self.emb_size]), name='JU_1_%d' % (i + 1))
-            self.weights['layer_2_%d' %(i+1)] = tf.Variable(initializer([self.emb_size, self.emb_size]), name='JU_2_%d' % (i + 1))
-            self.weights['layer_att_%d' %(i+1)] = tf.Variable(initializer([self.emb_size, self.emb_size]), name='layer_bias_%d' %(i+1))
-            self.attention_weights['compound' ] = tf.Variable(initializer([self.emb_size, self.emb_size]), name='compound')
-            self.attention_weights['protein'] = tf.Variable(initializer([self.emb_size, self.emb_size]),
-                                                             name='protein')
+            if not self.encoder_profile['external_baseline']:
+                self.weights['layer_2_%d' %(i+1)] = tf.Variable(initializer([self.emb_size, self.emb_size]), name='JU_2_%d' % (i + 1))
+                self.weights['layer_att_%d' %(i+1)] = tf.Variable(initializer([self.emb_size, self.emb_size]), name='layer_bias_%d' %(i+1))
+            if self.encoder_profile['use_node_dimension_attention']:
+                self.attention_weights['compound'] = tf.Variable(
+                    initializer([self.emb_size, self.emb_size]),
+                    name='compound',
+                )
+                self.attention_weights['protein'] = tf.Variable(
+                    initializer([self.emb_size, self.emb_size]),
+                    name='protein',
+                )
             for h in range(num_heads):
-                self.attention_weights['compound_q_%d_%d' % (i + 1, h)] = tf.Variable(
-                    initializer([self.emb_size, head_dim]), name='compound_q_%d_%d' % (i + 1, h))
-                self.attention_weights['compound_k_%d_%d' % (i + 1, h)] = tf.Variable(
-                    initializer([self.emb_size, head_dim]), name='compound_k_%d_%d' % (i + 1, h))
-                self.attention_weights['compound_v_%d_%d' % (i + 1, h)] = tf.Variable(
-                    initializer([self.emb_size, head_dim]), name='compound_v_%d_%d' % (i + 1, h))
+                # Keep the historical HDCTI variable graph unchanged even
+                # when attention.max.nodes disables execution. The frozen
+                # external baseline removes these variables entirely.
+                if self.encoder_profile['use_dense_full_attention']:
+                    self.attention_weights['compound_q_%d_%d' % (i + 1, h)] = tf.Variable(
+                        initializer([self.emb_size, head_dim]), name='compound_q_%d_%d' % (i + 1, h))
+                    self.attention_weights['compound_k_%d_%d' % (i + 1, h)] = tf.Variable(
+                        initializer([self.emb_size, head_dim]), name='compound_k_%d_%d' % (i + 1, h))
+                    self.attention_weights['compound_v_%d_%d' % (i + 1, h)] = tf.Variable(
+                        initializer([self.emb_size, head_dim]), name='compound_v_%d_%d' % (i + 1, h))
 
-                self.attention_weights['protein_q_%d_%d' % (i + 1, h)] = tf.Variable(
-                    initializer([self.emb_size, head_dim]), name='protein_q_%d_%d' % (i + 1, h))
-                self.attention_weights['protein_k_%d_%d' % (i + 1, h)] = tf.Variable(
-                    initializer([self.emb_size, head_dim]), name='protein_k_%d_%d' % (i + 1, h))
-                self.attention_weights['protein_v_%d_%d' % (i + 1, h)] = tf.Variable(
-                    initializer([self.emb_size, head_dim]), name='protein_v_%d_%d' % (i + 1, h))
+                    self.attention_weights['protein_q_%d_%d' % (i + 1, h)] = tf.Variable(
+                        initializer([self.emb_size, head_dim]), name='protein_q_%d_%d' % (i + 1, h))
+                    self.attention_weights['protein_k_%d_%d' % (i + 1, h)] = tf.Variable(
+                        initializer([self.emb_size, head_dim]), name='protein_k_%d_%d' % (i + 1, h))
+                    self.attention_weights['protein_v_%d_%d' % (i + 1, h)] = tf.Variable(
+                        initializer([self.emb_size, head_dim]), name='protein_v_%d_%d' % (i + 1, h))
             if self.hyperedge_attention['hc_enabled']:
                 self.weights['hc_hyper_node_%d' % (i + 1)] = tf.Variable(
                     tf.zeros([self.emb_size]),
@@ -625,13 +719,16 @@ class HDCTI(herbRecommender):
                     name='pd_hyper_edge_%d' % (i + 1),
                 )
 
-        for i in range(2):
-            self.weights['gating%d' % (i + 1)] = tf.Variable(initializer([self.emb_size, self.emb_size]),
-                                                             name='g_W_%d_1' % (i + 1))
-            # self.weights['gating_bias%d' % (i + 1)] = tf.Variable(tf.zeros([1, self.emb_size]),
-            #                                                       name='g_W_b_%d_1' % (i + 1))
-            self.weights['gating_bias%d' % (i + 1)] = tf.Variable(initializer([1, self.emb_size]),
-                                                                       name='g_W_b_%d_1' % (i + 1))
+        if self.encoder_profile['use_self_gating']:
+            for i in range(2):
+                self.weights['gating%d' % (i + 1)] = tf.Variable(
+                    initializer([self.emb_size, self.emb_size]),
+                    name='g_W_%d_1' % (i + 1),
+                )
+                self.weights['gating_bias%d' % (i + 1)] = tf.Variable(
+                    initializer([1, self.emb_size]),
+                    name='g_W_b_%d_1' % (i + 1),
+                )
 
         if self.use_context_interaction:
             # Zero initialization keeps the first forward pass equal to the dot-product baseline.
@@ -943,8 +1040,12 @@ class HDCTI(herbRecommender):
             (pd_edge_degrees > 0).astype(np.float32), dtype=tf.float32
         )
 
-        compound_embeddings = self_gating(self.compound_embeddings, 1)
-        protein_embeddings = self_gating(self.protein_embeddings, 2)
+        if self.encoder_profile['use_self_gating']:
+            compound_embeddings = self_gating(self.compound_embeddings, 1)
+            protein_embeddings = self_gating(self.protein_embeddings, 2)
+        else:
+            compound_embeddings = self.compound_embeddings
+            protein_embeddings = self.protein_embeddings
 
         all_compound_embeddings = [compound_embeddings]
 
@@ -1046,8 +1147,13 @@ class HDCTI(herbRecommender):
                     new_pd_edge,
                     name='pd_edge_to_node_layer_%d' % (i + 1),
                 )
-            new_compound_embeddings = new_compound_embeddings * pr_compound_embeddings
-            new_protein_embeddings = new_protein_embeddings * pr_protein_embeddings
+            if self.encoder_profile['use_pagerank']:
+                new_compound_embeddings = (
+                    new_compound_embeddings * pr_compound_embeddings
+                )
+                new_protein_embeddings = (
+                    new_protein_embeddings * pr_protein_embeddings
+                )
         
             new_compound_embeddings = multi_head_attention_compound(new_compound_embeddings, self.attention_weights, num_heads,
                                                             head_dim)
@@ -1076,23 +1182,23 @@ class HDCTI(herbRecommender):
                     i + 1,
                 )
         
-            # 添加节点的注意力机制
-        
-            attn_weights_compound = tf.nn.softmax(
-                tf.matmul(new_compound_embeddings, self.attention_weights['compound']))
-            attn_weights_protein = tf.nn.softmax(tf.matmul(new_protein_embeddings, self.attention_weights['protein']))
-        
-            # 使用注意力权重对邻居节点进行加权求和
-            new_compound_embeddings = tf.nn.leaky_relu(tf.matmul(attn_weights_compound * new_compound_embeddings,
-                                                self.weights['layer_%d' % (i + 1)]) + compound_embeddings)
-            new_protein_embeddings = tf.nn.leaky_relu(tf.matmul(attn_weights_protein * new_protein_embeddings,
-                                               self.weights['layer_1_%d' % (i + 1)]) + protein_embeddings)
-        
-            compound_embeddings = tf.nn.leaky_relu(
-                tf.matmul(new_compound_embeddings, self.weights['layer_%d' % (i + 1)]) + compound_embeddings)
-            
-            protein_embeddings = tf.nn.leaky_relu(
-                tf.matmul(new_protein_embeddings, self.weights['layer_1_%d' % (i + 1)]) + protein_embeddings)
+            if self.encoder_profile['use_node_dimension_attention']:
+                attn_weights_compound = tf.nn.softmax(tf.matmul(
+                    new_compound_embeddings,
+                    self.attention_weights['compound'],
+                ))
+                attn_weights_protein = tf.nn.softmax(tf.matmul(
+                    new_protein_embeddings,
+                    self.attention_weights['protein'],
+                ))
+                new_compound_embeddings = tf.nn.leaky_relu(tf.matmul(
+                    attn_weights_compound * new_compound_embeddings,
+                    self.weights['layer_%d' % (i + 1)],
+                ) + compound_embeddings)
+                new_protein_embeddings = tf.nn.leaky_relu(tf.matmul(
+                    attn_weights_protein * new_protein_embeddings,
+                    self.weights['layer_1_%d' % (i + 1)],
+                ) + protein_embeddings)
         
             compound_embeddings = tf.nn.leaky_relu(new_compound_embeddings)
             protein_embeddings = tf.nn.leaky_relu(new_protein_embeddings)

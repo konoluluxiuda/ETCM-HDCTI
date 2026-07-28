@@ -7,6 +7,23 @@ CONTEXT_TERM_CONFIG = {
     'herb_disease': 'context.herb_disease',
 }
 
+ENCODER_PROFILES = {
+    'hdcti': {
+        'use_self_gating': True,
+        'use_pagerank': True,
+        'use_dense_full_attention': True,
+        'use_node_dimension_attention': True,
+        'external_baseline': False,
+    },
+    'dual_hgnn_cti': {
+        'use_self_gating': False,
+        'use_pagerank': False,
+        'use_dense_full_attention': False,
+        'use_node_dimension_attention': False,
+        'external_baseline': True,
+    },
+}
+
 
 def _config_bool(config, key, default):
     if not config.contains(key):
@@ -17,6 +34,20 @@ def _config_bool(config, key, default):
     if value in {'0', 'false', 'no', 'off'}:
         return False
     raise ValueError('Invalid boolean value for %s: %s' % (key, config[key]))
+
+
+def resolve_encoder_profile(config):
+    name = (
+        str(config['encoder.profile']).strip().lower()
+        if config.contains('encoder.profile') else 'hdcti'
+    )
+    if name not in ENCODER_PROFILES:
+        raise ValueError(
+            'encoder.profile must be hdcti or dual_hgnn_cti.'
+        )
+    profile = dict(ENCODER_PROFILES[name])
+    profile['name'] = name
+    return profile
 
 
 def resolve_context_terms(config):

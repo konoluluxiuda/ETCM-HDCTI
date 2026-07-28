@@ -12,6 +12,7 @@ from util.model_components import (
     context_interaction_scores,
     pair_decoder_scores,
     resolve_early_stopping,
+    resolve_encoder_profile,
     resolve_context_terms,
     resolve_context_mask_training,
     resolve_counterfactual_context,
@@ -36,6 +37,30 @@ class DummyConf(object):
 
 
 class ModelComponentsTest(unittest.TestCase):
+    def test_encoder_profiles_separate_hdcti_from_dual_hgnn_baseline(self):
+        default_profile = resolve_encoder_profile(DummyConf({}))
+        self.assertEqual(default_profile['name'], 'hdcti')
+        self.assertTrue(default_profile['use_self_gating'])
+        self.assertTrue(default_profile['use_pagerank'])
+        self.assertTrue(default_profile['use_dense_full_attention'])
+        self.assertTrue(default_profile['use_node_dimension_attention'])
+        self.assertFalse(default_profile['external_baseline'])
+
+        dual_hgnn = resolve_encoder_profile(DummyConf({
+            'encoder.profile': 'dual_hgnn_cti',
+        }))
+        self.assertEqual(dual_hgnn['name'], 'dual_hgnn_cti')
+        self.assertFalse(dual_hgnn['use_self_gating'])
+        self.assertFalse(dual_hgnn['use_pagerank'])
+        self.assertFalse(dual_hgnn['use_dense_full_attention'])
+        self.assertFalse(dual_hgnn['use_node_dimension_attention'])
+        self.assertTrue(dual_hgnn['external_baseline'])
+
+        with self.assertRaisesRegex(ValueError, 'encoder.profile'):
+            resolve_encoder_profile(DummyConf({
+                'encoder.profile': 'unknown',
+            }))
+
     def test_inductive_context_defaults_off_and_supports_orthogonal_switches(self):
         self.assertEqual(resolve_inductive_context(DummyConf({})), {
             'enabled': False,
