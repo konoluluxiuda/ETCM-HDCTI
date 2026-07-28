@@ -158,8 +158,22 @@ Hctx-P / CHCR / SDIS / HILGA / hyperedge attention
 ./run_dual_hgnn_cti_pilot_batch.sh
 ```
 
-单折结果只用于确认适配模型可稳定训练；通过后再生成五折配置并进入 Strict
-重新训练比较表。
+四库单折 pilot 已于 2026-07-28 完成：
+
+| 数据集 | Validation AUPR | 最佳 epoch | 运行时间 |
+|---|---:|---:|---:|
+| TCM-Suite | 0.992936 | 20 | 16.6s |
+| TCMSP | 0.982229 | 38 | 27.2s |
+| SymMap2.0 | 0.949886 | 50 | 28.1s |
+| ETCM2.0 mention10 | 0.969900 | 50 | 130.4s |
+
+四个任务均正常完成，未出现 NaN、图构建错误或训练崩溃，因此适配可行性通过。
+SymMap2.0 和 ETCM2.0 在 epoch 50 仍刷新最佳值，表明固定预算下可能尚未完全
+收敛。正式配对比较先保持与现有 Strict 配置一致的 50-epoch 上限，不能只为
+该基线单独增加预算；若后续统一修改训练预算，所有比较方法必须同步重跑。
+
+这些单折结果只用于确认适配模型可稳定训练，不进入最终论文主表。下一步生成
+五折配置并进入 Strict 重新训练比较表。
 
 第二、第三个 Strict 基线候选为：
 
@@ -169,6 +183,22 @@ R-GCN：使用 H-C、fold 训练 C-P、P-D 异构图
 ```
 
 这样主表同时覆盖 pair-only、异构图和双超图三类结构归纳偏置。
+
+截至 2026-07-28，第二个基线 `LightGCN-CTI` 已实现并完成四库单折 pilot。
+该模型只从 fold inner-train 正 C-P 边构造归一化二部图，采用三层无参数邻居
+传播和均匀层聚合。为复用固定正负 pair，目标函数使用 BCE，因此论文名称必须
+写为 `LightGCN-CTI (same-input BCE adaptation)`。
+
+| 数据集 | Validation AUPR | 最佳 epoch | 运行时间 |
+|---|---:|---:|---:|
+| TCM-Suite | 0.990551 | 38 | 14.0s |
+| TCMSP | 0.977929 | 6 | 9.6s |
+| SymMap2.0 | 0.928304 | 2 | 8.0s |
+| ETCM2.0 mention10 | 0.964636 | 34 | 24.6s |
+
+四库均稳定完成，适配可行性通过。该结果只决定模型是否进入正式五折，不作为
+论文性能结论。实现边界和运行命令见
+[LIGHTGCN_CTI_BASELINE.md](LIGHTGCN_CTI_BASELINE.md)。
 
 ### 步骤 C：有条件恢复属性模型
 
@@ -181,6 +211,7 @@ HyperAttentionDTI 与 DrugBAN。若只能自行补全部分实体，则仅形成
 1. 保留 HDCTI 原论文八模型结果，不再写成“不可使用”。
 2. 不把原论文报告值与当前 Strict 结果放入同一统计比较。
 3. 不继续为跨库多模态门槛进行高成本人工补全。
-4. `Dual-HGNN-CTI` 代码与四库单折配置已完成，尚未产生四库 pilot 结果。
-5. pilot 通过后的下一项代码工作是 LightGCN，随后是 R-GCN。
-6. 获得作者材料后，再把可原样复现的 HDCTI 对比模型补入 Strict 管线。
+4. `Dual-HGNN-CTI` 代码与四库单折 pilot 已完成，可进入五折正式比较。
+5. `LightGCN-CTI` 四库单折 pilot 已完成并通过，可进入五折正式比较。
+6. 下一项实现 `R-GCN-CTI`，补齐异构关系图对照后再统一启动三种外部基线五折。
+7. 获得作者材料后，再把可原样复现的 HDCTI 对比模型补入 Strict 管线。

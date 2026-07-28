@@ -189,7 +189,7 @@ Herb context 与可解释路径
 | 加强 | 四库统一 cold-start NoContext 完整五折缺失 | 当前仅有单折 Pilot；ETCM 旧五折也不是统一 `attention.max.nodes=0` 口径 | 不阻塞 SDIS 相对匹配 Hctx-P 的直接消融；若终稿需要展示 Hctx-P 的四库 cold-start 绝对贡献，再补四个 NoContext 五折 |
 | 可选 | 未形成统一硬件复杂度 benchmark | 可能用于回应 CHCR 训练成本与 SDIS 部署代价，但不影响主要有效性结论 | 正文仅报告理论增量：Hctx-P 少量参数、CHCR 仅训练期开销、SDIS 无参数；审稿明确要求时再补硬件实测 |
 | 已完成 | ETCM Top-K 外部证据闭环 | 数据贡献和中医药解释需要独立于训练数据的证据边界 | 15 个冻结 pair 的 45 个查询已完成；已冻结 2 个 B1 正向案例和 1 个 Conflict 失败案例，待制作论文图 |
-| 进行中（实现） | 缺少同一 Strict 协议下的外部对比方法 | HDCTI 原论文八模型结果可以作为 Legacy 文献比较，但公开材料不含其属性输入、适配代码与共用 fold，不能替代当前协议下的重新训练；Dual-HGNN-CTI 已实现但尚无四库结果 | 先运行 `run_dual_hgnn_cti_pilot_batch.sh`，稳定后实现 LightGCN 和 R-GCN；若作者补充材料，再接入可原样复现的属性模型 |
+| 进行中（实验） | 缺少同一 Strict 协议下的完整外部对比表 | HDCTI 原论文八模型结果可以作为 Legacy 文献比较，但公开材料不含其属性输入、适配代码与共用 fold；Dual-HGNN-CTI 与 LightGCN-CTI 四库单折 pilot 均已通过，LightGCN AUPR 为 0.990551、0.977929、0.928304、0.964636 | 实现 R-GCN-CTI 四库 pilot；通过后统一生成 Dual-HGNN/LightGCN/R-GCN 五折配置并运行冻结外层测试；若作者补充材料，再接入可原样复现的属性模型 |
 | 加强 | 除 ETCM CHCR 外，其他最终配置主要为单训练 seed | fold 方差不能代表初始化稳定性 | 在主表冻结后选择一个代表库补 3 seed，或在局限性中明确披露 |
 | 可选 | disease-aware / target cold-start 未形成四库最终结果 | 可增强对原论文和困难泛化场景的覆盖 | 仅在主表完成且计算预算允许时追加，不阻塞当前模型冻结 |
 
