@@ -20,6 +20,8 @@ from util.model_components import (
     resolve_inductive_context,
     resolve_negative_sampling,
     resolve_pair_decoder,
+    resolve_support_experts,
+    support_conditioned_cold_gate,
     support_decoupled_base_gate,
     target_conditioned_herb_contexts,
 )
@@ -100,6 +102,76 @@ class ModelComponentsTest(unittest.TestCase):
             context_available=[1, 0, 1, 0],
         )
         np.testing.assert_array_equal(gates, [0.0, 1.0, 1.0, 1.0])
+
+    def test_support_experts_use_a_frozen_hard_zero_support_route(self):
+        settings = resolve_support_experts(DummyConf({
+            'support.experts': 'True',
+        }))
+        self.assertEqual(settings, {
+            'enabled': True,
+            'mode': 'hard_zero_support',
+            'pseudo_cold_ratio': 0.1,
+            'seed': 72026,
+            'detach_cold_features': True,
+        })
+        gates = support_conditioned_cold_gate(
+            support_degrees=[0, 0, 1, 4],
+            context_available=[1, 0, 1, 0],
+        )
+        np.testing.assert_array_equal(gates, [1.0, 0.0, 0.0, 0.0])
+        with self.assertRaisesRegex(ValueError, 'detach.cold.features'):
+            resolve_support_experts(DummyConf({
+                'support.experts': 'True',
+                'support.experts.detach.cold.features': 'False',
+            }))
+
+    def test_pair_scores_route_warm_and_cold_experts_without_overlap(self):
+        compounds = np.asarray(
+            [[1.0, 2.0], [3.0, 4.0]], dtype=np.float32
+        )
+        proteins = np.asarray(
+            [[0.5, 1.5], [2.0, 1.0]], dtype=np.float32
+        )
+        herb_contexts = np.asarray(
+            [[0.2, 0.8], [0.6, 0.4]], dtype=np.float32
+        )
+        protein_contexts = np.zeros((2, 2), dtype=np.float32)
+        zero = np.zeros(2, dtype=np.float32)
+        warm_weight = np.asarray([2.0, 3.0], dtype=np.float32)
+        cold_weight = np.asarray([-1.0, 4.0], dtype=np.float32)
+        warm_scale = np.asarray([1.0, 0.0], dtype=np.float32)
+        cold_scale = 1.0 - warm_scale
+
+        scores = context_interaction_pair_scores(
+            compounds,
+            proteins,
+            herb_contexts,
+            protein_contexts,
+            compound_indices=[0, 1],
+            protein_indices=[0, 1],
+            compound_disease_weight=zero,
+            herb_protein_weight=warm_weight,
+            herb_disease_weight=zero,
+            enabled_terms={
+                'compound_disease': False,
+                'herb_protein': True,
+                'herb_disease': False,
+            },
+            herb_protein_scale=warm_scale,
+            base_score_scale=warm_scale,
+            cold_herb_protein_weight=cold_weight,
+            cold_herb_protein_scale=cold_scale,
+        )
+        expected_warm = (
+            np.sum(compounds[0] * proteins[0])
+            + np.sum(herb_contexts[0] * proteins[0] * warm_weight)
+        )
+        expected_cold = np.sum(
+            herb_contexts[1] * proteins[1] * cold_weight
+        )
+        np.testing.assert_allclose(
+            scores, [expected_warm, expected_cold]
+        )
 
     def test_pair_scores_can_suppress_only_the_base_decoder_term(self):
         compounds = np.asarray([[1.0, 2.0]], dtype=np.float32)

@@ -63,7 +63,7 @@ CHCR 只改变训练目标：对已知训练正样本构造同 H-C degree 的反
 
 ### 3.4 禁止的伪统一配置
 
-`Hctx-P + CHCR + SDIS` 不是最终 `Ours-full`。冻结 cold-start 组合实验中，TCM-Suite AUPR 下降 `0.019451`，超过预注册最大退化 `0.005`。论文必须按任务协议分别报告 CHCR 和 SDIS。
+`Hctx-P + CHCR + SDIS` 不是最终 `Ours-full`。冻结 cold-start 组合实验中，TCM-Suite AUPR 下降 `0.019451`，超过预注册最大退化 `0.005`。为解决共享上下文参数的 warm/cold 负迁移，唯一重新开放的 SCHE 双专家 Pilot 也未通过：TCM-Suite fold 1 GPU inner-validation AUPR 为 `0.650499`，低于冻结 SDIS 的 `0.669984`。因此论文必须按任务协议分别报告 CHCR 和 SDIS，不再搜索统一门控或专家结构。
 
 ## 4. 核心主张证据矩阵
 
@@ -76,7 +76,8 @@ CHCR 只改变训练目标：对已知训练正样本构造同 H-C degree 的反
 | M2-S | CHCR 支持度边界 | CHCR/Hctx-P 的上下文可靠性受 H-C 与训练 C-P 支持度调节 | SymMap 在 `H-C degree=1`、训练 `C-P degree=0/1-2` 方向不一致；TCM-Suite 在训练 `C-P degree=1-2/3-5` 也不稳定 | C | 这是失败模式定位，不等于已经实现或验证自适应路由 | [CHCR_DONOR_CONTROLS](CHCR_DONOR_CONTROLS.md) |
 | M3-P | SDIS 排序贡献 | SDIS 改善 compound cold-start 下零训练 C-P 支持实体的归纳排序 | 四库五折 AUPR 增量 `+0.059305/+0.022891/+0.012215/+0.017686`，macro `+0.028024`，20/20 folds 提高 | A | 只适用于 compound cold-start；不是普通随机边默认模块 | [SELF_EXCLUDED_HERB_CONTEXT_AUDIT](SELF_EXCLUDED_HERB_CONTEXT_AUDIT.md) |
 | M3-C | SDIS 校准分类 | 固定 0.5 阈值下的 F1 下降主要来自分数尺度变化，inner-validation 阈值可恢复分类表现 | 纯推理阈值校准后四库 F1 均提高，macro `+0.029535`，20/20 folds 提高 | A/C | 校准阈值必须逐折仅由 inner-validation 选择；固定 0.5 结果仍需披露 | [SELF_EXCLUDED_HERB_CONTEXT_AUDIT](SELF_EXCLUDED_HERB_CONTEXT_AUDIT.md) |
-| F1 | 场景化统一框架 | CHCR 与 SDIS 的切换由监督可用性和预定义评估协议决定，不由数据库结果决定 | 两套四库冻结协议；组合实验显式 No-Go | A | 不能把两个场景最优结果拼成同一 `Ours-full` 行 | [修改计划](修改计划.md)、[SELF_EXCLUDED_HERB_CONTEXT_AUDIT](SELF_EXCLUDED_HERB_CONTEXT_AUDIT.md) |
+| F1 | 场景化双配置证据 | CHCR 与 SDIS 分别说明随机边上下文正则和 cold-start 支持度失配 | 两套四库冻结协议；组合实验显式 No-Go | 补充 | 作者已决定双配置不构成最终统一方法，不能写为 `Ours-full` 或核心框架贡献 | [最终方法统一性决策](UNIFIED_METHOD_DIRECTION.md)、[SELF_EXCLUDED_HERB_CONTEXT_AUDIT](SELF_EXCLUDED_HERB_CONTEXT_AUDIT.md) |
+| C1 | SCHE 统一候选 | 独立 warm/cold Hctx-P 参数与逐样本支持度路由未能消除共享参数冲突 | TCM-Suite cold-start fold 1 GPU inner-validation AUPR `0.650499`，低于冻结 SDIS `0.669984`，差值 `-0.019485`；CPU 复现为 `0.650017` | No-Go | 不进入四库，不搜索 ratio、seed、margin、weight、soft gate 或数据库特定参数；不能写入最终贡献 | [SUPPORT_CONDITIONED_DUAL_EXPERT](SUPPORT_CONDITIONED_DUAL_EXPERT.md) |
 | D1 | ETCM2.0 数据工作 | 构建具有实体映射、关系审计和剪枝依据的 ETCM2.0 CTI 数据集，用于外部验证和案例研究 | mention10/core 构建、数据统计、关系交集与映射审查 | A（数据） | mention10 是证据频次过滤；不能声称覆盖 ETCM2.0 全部实体 | [DATASET_STATISTICS](DATASET_STATISTICS.md)、[ETCM2_CORE_NOTES](ETCM2_CORE_NOTES.md) |
 | D2 | ETCM2.0 Top-K 独立核验 | 冻结候选中存在可由外部实验支持的预测，同时高排名候选也可能与直接实验冲突 | 检索前冻结 15 个 pair，完成 45 个 BindingDB/ChEMBL/PubMed 查询；B1 2 条、E 12 条、Conflict 1 条 | B（案例） | `2/15` 不是总体 precision；E 不是确认负例；页面路径不是独立 C-P 证据 | [ETCM Top-K 核验](ETCM_TOPK_MANUAL_VALIDATION.md)、[代表案例](ETCM_REPRESENTATIVE_CASES.md) |
 
@@ -107,6 +108,7 @@ CHCR 只改变训练目标：对已知训练正样本构造同 H-C degree 的反
 | 独立 H-D 路径 | H-D 来源审计未满足独立先验要求 | 仅作 post-hoc 假设生成 |
 | Direct self-exclusion | 相对 SD-only 为 0/4 提高，macro `-0.025989` | 作为 SDIS 消融 No-Go |
 | SDIS + CHCR | TCM-Suite `-0.019451`，违反单库退化上限 | 必须披露，支持场景化配置而非插件堆叠 |
+| SCHE warm/cold 双专家 | TCM-Suite fold 1 GPU validation AUPR `0.650499`，相对冻结 SDIS `-0.019485`；CPU 复现差异仅 `0.000482` | 预注册首门槛即失败，停止四库和统一模型主张 |
 | CHCR 四库普适机制 | SymMap 仅 1/5 folds 通过 donor-control | 限制机制主张，不否定其已观察的性能结果 |
 
 ## 7. 论文表格映射
@@ -192,6 +194,7 @@ Herb context 与可解释路径
 | 已完成 | 同一 Strict 协议下的外部同输入对比表 | Dual-HGNN-CTI、LightGCN-CTI、R-GCN-CTI 与稀疏 HGT-CTI 的四库 16 个外层五折任务全部完成；R-GCN 是四个基线中最强者。最终随机边模型相对 R-GCN 的 macro AUPR 为 `+0.001408`，在 SymMap/ETCM 较高、TCMSP 基本持平、TCM-Suite 略低 | 两个冻结结果源及逐行配置哈希已接入 `FINAL_RESULTS_TABLES.md`；HGT 使用统一 64 入邻居上限，其 ETCM 结果不代表无采样完整 HGT。停止库特定调参；作者材料若到达，再追加可原样复现的属性模型 |
 | 加强 | 除 ETCM CHCR 外，其他最终配置主要为单训练 seed | fold 方差不能代表初始化稳定性 | 在主表冻结后选择一个代表库补 3 seed，或在局限性中明确披露 |
 | 可选 | disease-aware / target cold-start 未形成四库最终结果 | 可增强对原论文和困难泛化场景的覆盖 | 仅在主表完成且计算预算允许时追加，不阻塞当前模型冻结 |
+| 阻塞 | 最终方法缺少唯一训练/推理配置 | CHCR 与 SDIS 的双场景拼接不被接受，SCHE 统一候选也已 No-Go | 优先收窄到 compound cold-start；文献审计通过后，只允许一个共享 Hctx-P + SDIS 的支持掩码 episodic training Pilot |
 
 ## 9. 当前决策
 
@@ -213,7 +216,10 @@ ETCM Top-K 证据闭环也已完成，见
 [ETCM_TOPK_MANUAL_VALIDATION.md](ETCM_TOPK_MANUAL_VALIDATION.md)。两个 B1
 正向案例和一个 Conflict 失败案例已经按证据等级自动冻结，不根据模型分数或
 路径数量替换。同一 Strict 协议下的四种外部拓扑基线和代表案例图也均已完成。
-当前方法实验和外部同输入基线实验均已冻结，不再扩展新模块或进行数据库特定
-调参。下一阶段转向论文 Methods、Results 和局限性段落的正式写作。
+已有方法实验和外部同输入基线结果均冻结，但最终方法尚未冻结。唯一重新开放的
+SCHE 统一模型 Pilot 已按预注册门槛判定 No-Go；作者同时否决将 CHCR 与 SDIS
+按两个场景拼接为最终框架。下一阶段不直接写最终 Methods，而是先把研究问题
+收窄为 compound cold-start，并对共享 Hctx-P + SDIS 的支持掩码 episodic
+training 做近邻工作审计。该候选通过文献和单折门槛前，不进入四库或论文贡献。
 
 执行协议、预注册门槛和输出文件见 [HCTX_NO_DENSE_ABLATION.md](HCTX_NO_DENSE_ABLATION.md)。当前实现会在运行前校验四库配置 SHA-256，并只允许 `model.variant`、`context.interaction` 与 `context.herb_protein` 三项不同；完成后自动输出逐折配对结果和 `PASS/NO-GO` 判定。

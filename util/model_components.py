@@ -184,6 +184,45 @@ def resolve_support_router(config):
     }
 
 
+def resolve_support_experts(config):
+    enabled = _config_bool(config, 'support.experts', False)
+    mode = (
+        str(config['support.experts.mode']).strip().lower()
+        if config.contains('support.experts.mode') else 'hard_zero_support'
+    )
+    pseudo_cold_ratio = (
+        float(config['support.experts.pseudo.cold.ratio'])
+        if config.contains('support.experts.pseudo.cold.ratio') else 0.1
+    )
+    seed = (
+        int(config['support.experts.seed'])
+        if config.contains('support.experts.seed') else 72026
+    )
+    detach_cold_features = _config_bool(
+        config, 'support.experts.detach.cold.features', True
+    )
+    if mode != 'hard_zero_support':
+        raise ValueError(
+            'support.experts.mode must be hard_zero_support.'
+        )
+    if not 0.0 < pseudo_cold_ratio < 1.0:
+        raise ValueError(
+            'support.experts.pseudo.cold.ratio must be between 0 and 1.'
+        )
+    if enabled and not detach_cold_features:
+        raise ValueError(
+            'The frozen SCHE Pilot requires '
+            'support.experts.detach.cold.features=True.'
+        )
+    return {
+        'enabled': enabled,
+        'mode': mode,
+        'pseudo_cold_ratio': pseudo_cold_ratio,
+        'seed': seed,
+        'detach_cold_features': detach_cold_features,
+    }
+
+
 def resolve_inductive_context(config):
     enabled = _config_bool(config, 'inductive.context', False)
     suppress_base = _config_bool(
@@ -213,6 +252,17 @@ def support_decoupled_base_gate(support_degrees, context_available):
         )
     suppress = (support_degrees <= 0) & (context_available > 0)
     return np.where(suppress, 0.0, 1.0).astype(np.float32)
+
+
+def support_conditioned_cold_gate(support_degrees, context_available):
+    support_degrees = np.asarray(support_degrees, dtype=np.float64)
+    context_available = np.asarray(context_available, dtype=np.float64)
+    if support_degrees.shape != context_available.shape:
+        raise ValueError(
+            'Support degrees and context availability must have matching shapes.'
+        )
+    use_cold = (support_degrees <= 0) & (context_available > 0)
+    return use_cold.astype(np.float32)
 
 
 def resolve_hyperedge_attention(config):
@@ -485,7 +535,9 @@ def context_interaction_pair_scores(
         residual_compound_contexts=None,
         target_residual_weight=None,
         herb_protein_scale=None,
-        base_score_scale=None):
+        base_score_scale=None,
+        cold_herb_protein_weight=None,
+        cold_herb_protein_scale=None):
     compound_indices = np.asarray(compound_indices, dtype=np.int64)
     protein_indices = np.asarray(protein_indices, dtype=np.int64)
     if compound_indices.shape != protein_indices.shape:
@@ -551,6 +603,23 @@ def context_interaction_pair_scores(
             scores += np.sum(
                 context_delta * proteins * np.asarray(target_residual_weight), axis=1
             )
+        if cold_herb_protein_weight is not None:
+            cold_herb_protein_scores = np.sum(
+                static_herb_contexts
+                * proteins
+                * np.asarray(cold_herb_protein_weight),
+                axis=1,
+            )
+            if cold_herb_protein_scale is not None:
+                cold_herb_protein_scale = np.asarray(
+                    cold_herb_protein_scale, dtype=np.float64
+                ).reshape(-1)
+                if cold_herb_protein_scale.shape != cold_herb_protein_scores.shape:
+                    raise ValueError(
+                        'Cold-expert scales must match the number of pairs.'
+                    )
+                cold_herb_protein_scores *= cold_herb_protein_scale
+            scores += cold_herb_protein_scores
     if enabled_terms.get('herb_disease', False):
         scores += np.sum(herb_contexts * disease_contexts * herb_disease_weight, axis=1)
     return scores

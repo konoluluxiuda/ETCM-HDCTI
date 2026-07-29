@@ -35,7 +35,9 @@ from util.model_components import (
     resolve_herb_context_attention,
     resolve_inductive_context,
     resolve_pair_decoder,
+    resolve_support_experts,
     resolve_support_router,
+    support_conditioned_cold_gate,
     support_decoupled_base_gate,
     target_conditioned_herb_contexts,
 )
@@ -291,6 +293,7 @@ class HDCTI(herbRecommender):
         self.counterfactual_context = resolve_counterfactual_context(self.config)
         self.context_mask_training = resolve_context_mask_training(self.config)
         self.support_router = resolve_support_router(self.config)
+        self.support_experts = resolve_support_experts(self.config)
         self.hyperedge_attention = resolve_hyperedge_attention(self.config)
         self.global_token_attention = resolve_global_token_attention(self.config)
         self.inductive_context = resolve_inductive_context(self.config)
@@ -307,6 +310,8 @@ class HDCTI(herbRecommender):
                 incompatible_components.append('context.mask.training')
             if self.support_router['enabled']:
                 incompatible_components.append('support.router')
+            if self.support_experts['enabled']:
+                incompatible_components.append('support.experts')
             if self.hyperedge_attention['enabled']:
                 incompatible_components.append('hyperedge.attention')
             if self.global_token_attention['enabled']:
@@ -370,6 +375,62 @@ class HDCTI(herbRecommender):
             if self.data.pseudo_cold_info is None:
                 raise ValueError(
                     'Support routing requires deterministic pseudo-cold graph masking.'
+                )
+        if self.support_experts['enabled']:
+            if getattr(self.data, 'protocol', 'legacy') != 'strict':
+                raise ValueError(
+                    'Support-conditioned experts require experiment.protocol=strict.'
+                )
+            if self.support_router['enabled']:
+                raise ValueError(
+                    'Support-conditioned experts cannot use the rejected support router.'
+                )
+            if self.inductive_context['enabled']:
+                raise ValueError(
+                    'SCHE replaces standalone inductive.context scoring.'
+                )
+            if self.herb_context_attention['mode'] != 'static':
+                raise ValueError(
+                    'Support-conditioned experts require static Hctx-P.'
+                )
+            if self.context_terms != {
+                    'compound_disease': False,
+                    'herb_protein': True,
+                    'herb_disease': False}:
+                raise ValueError(
+                    'Support-conditioned experts require HerbOnly context terms.'
+                )
+            if not self.counterfactual_context['enabled']:
+                raise ValueError(
+                    'The frozen SCHE Pilot requires counterfactual.context=True.'
+                )
+            if self.context_mask_training['enabled']:
+                raise ValueError(
+                    'Support-conditioned experts cannot use CMIT.'
+                )
+            if self.hyperedge_attention['enabled']:
+                raise ValueError(
+                    'Support-conditioned experts require standard hypergraph propagation.'
+                )
+            if self.global_token_attention['enabled']:
+                raise ValueError(
+                    'Support-conditioned experts cannot use HILGA.'
+                )
+            if self.pair_decoder['type'] != 'dot':
+                raise ValueError(
+                    'The frozen SCHE Pilot requires pair.decoder=dot.'
+                )
+            if self.data.pseudo_cold_info is None:
+                raise ValueError(
+                    'Support-conditioned experts require deterministic '
+                    'pseudo-cold graph masking.'
+                )
+            if (
+                not self.config.contains('attention.max.nodes')
+                or int(self.config['attention.max.nodes']) != 0
+            ):
+                raise ValueError(
+                    'Support-conditioned experts require attention.max.nodes=0.'
                 )
         if self.inductive_context['enabled']:
             if getattr(self.data, 'protocol', 'legacy') != 'strict':
@@ -574,6 +635,18 @@ class HDCTI(herbRecommender):
                     self.support_router['initial_slope'],
                 )
             )
+        if self.support_experts['enabled']:
+            print(
+                'SCHE support-conditioned experts: mode=%s '
+                'pseudo_cold_ratio=%.4f seed=%d detach_cold_features=%s.' % (
+                    self.support_experts['mode'],
+                    self.support_experts['pseudo_cold_ratio'],
+                    self.support_experts['seed'],
+                    'on' if self.support_experts[
+                        'detach_cold_features'
+                    ] else 'off',
+                )
+            )
         print('Pair decoder: %s' % self.pair_decoder['type'])
         if self.inductive_context['enabled']:
             print(
@@ -741,6 +814,11 @@ class HDCTI(herbRecommender):
             self.weights['context_herb_disease'] = tf.Variable(
                 tf.zeros([self.emb_size]), name='context_herb_disease'
             )
+            if self.support_experts['enabled']:
+                self.weights['context_herb_protein_cold'] = tf.Variable(
+                    tf.zeros([self.emb_size]),
+                    name='context_herb_protein_cold',
+                )
         if self.support_router['enabled']:
             self.weights['support_router_raw_slope'] = tf.Variable(
                 np.asarray([
@@ -1325,6 +1403,28 @@ class HDCTI(herbRecommender):
             self.support_context_gate = pair_context_available * tf.exp(
                 -support_slope * tf.log1p(pair_support_degrees)
             )
+        self.support_expert_cold_gate = None
+        if self.support_experts['enabled']:
+            pair_support_degrees = tf.gather(
+                tf.constant(
+                    self.compound_cp_support_degrees, dtype=tf.float32
+                ),
+                self.u_idx,
+            )
+            pair_context_available = tf.gather(
+                tf.constant(
+                    self.compound_context_available, dtype=tf.float32
+                ),
+                self.u_idx,
+            )
+            self.support_expert_cold_gate = tf.cast(
+                tf.logical_and(
+                    pair_support_degrees <= 0,
+                    pair_context_available > 0,
+                ),
+                tf.float32,
+                name='support_expert_cold_gate',
+            )
         self.target_herb_attention_weights = None
         self.target_herb_context_embedding = None
         if self.herb_context_attention['mode'] in TARGET_HERB_ATTENTION_MODES:
@@ -1441,6 +1541,8 @@ class HDCTI(herbRecommender):
         logits = self.buildBasePairLogits(
             compound_embedding, protein_embedding
         )
+        if self.support_experts['enabled']:
+            logits *= 1.0 - self.support_expert_cold_gate
         if self.inductive_context['suppress_base_zero_support']:
             logits *= self.inductive_base_gate
         if self.context_terms['compound_disease']:
@@ -1455,7 +1557,18 @@ class HDCTI(herbRecommender):
             )
             if self.support_router['enabled']:
                 herb_protein_logits *= self.support_context_gate
+            if self.support_experts['enabled']:
+                herb_protein_logits *= 1.0 - self.support_expert_cold_gate
             logits += herb_protein_logits
+            if self.support_experts['enabled']:
+                cold_features = self.u_context_embedding * protein_embedding
+                if self.support_experts['detach_cold_features']:
+                    cold_features = tf.stop_gradient(cold_features)
+                logits += self.support_expert_cold_gate * tf.reduce_sum(
+                    cold_features
+                    * self.weights['context_herb_protein_cold'],
+                    axis=1,
+                )
             if self.herb_context_attention['mode'] == 'target_residual_attention':
                 context_delta = (
                     self.target_herb_context_embedding - self.u_context_embedding
@@ -1483,6 +1596,15 @@ class HDCTI(herbRecommender):
             self.compound_cp_support_degrees[compound_indices],
             self.compound_context_available[compound_indices],
             slope,
+        )
+
+    def supportExpertColdGateValues(self, compound_indices):
+        if not self.support_experts['enabled']:
+            return None
+        compound_indices = np.asarray(compound_indices, dtype=np.int64)
+        return support_conditioned_cold_gate(
+            self.compound_cp_support_degrees[compound_indices],
+            self.compound_context_available[compound_indices],
         )
 
     def inductiveBaseGateValues(self, compound_indices):
@@ -1547,6 +1669,37 @@ class HDCTI(herbRecommender):
         if self.support_router['enabled']:
             factual_context_logits *= self.support_context_gate
             counterfactual_context_logits *= self.support_context_gate
+        if self.support_experts['enabled']:
+            warm_gate = 1.0 - self.support_expert_cold_gate
+            factual_context_logits *= warm_gate
+            counterfactual_context_logits *= warm_gate
+            factual_cold_features = (
+                self.u_context_embedding * self.v_embedding
+            )
+            counterfactual_cold_features = (
+                counterfactual_context_embedding * self.v_embedding
+            )
+            if self.support_experts['detach_cold_features']:
+                factual_cold_features = tf.stop_gradient(
+                    factual_cold_features
+                )
+                counterfactual_cold_features = tf.stop_gradient(
+                    counterfactual_cold_features
+                )
+            factual_context_logits += (
+                self.support_expert_cold_gate * tf.reduce_sum(
+                    factual_cold_features
+                    * self.weights['context_herb_protein_cold'],
+                    axis=1,
+                )
+            )
+            counterfactual_context_logits += (
+                self.support_expert_cold_gate * tf.reduce_sum(
+                    counterfactual_cold_features
+                    * self.weights['context_herb_protein_cold'],
+                    axis=1,
+                )
+            )
         positive_mask = tf.cast(
             self.neg_disease_embedding > 0.5, tf.float32
         )
@@ -1668,10 +1821,22 @@ class HDCTI(herbRecommender):
                 pair_compound_contexts=pair_compound_contexts,
                 residual_compound_contexts=residual_compound_contexts,
                 target_residual_weight=weights.get('context_target_herb_residual'),
-                herb_protein_scale=self.supportContextGateValues(
-                    state, compound_indices
+                herb_protein_scale=(
+                    1.0 - self.supportExpertColdGateValues(compound_indices)
+                    if self.support_experts['enabled']
+                    else self.supportContextGateValues(
+                        state, compound_indices
+                    )
                 ),
-                base_score_scale=self.inductiveBaseGateValues(
+                base_score_scale=(
+                    1.0 - self.supportExpertColdGateValues(compound_indices)
+                    if self.support_experts['enabled']
+                    else self.inductiveBaseGateValues(compound_indices)
+                ),
+                cold_herb_protein_weight=weights.get(
+                    'context_herb_protein_cold'
+                ),
+                cold_herb_protein_scale=self.supportExpertColdGateValues(
                     compound_indices
                 ),
             )
@@ -2069,6 +2234,59 @@ class HDCTI(herbRecommender):
                 )
                 handle.write('\n')
             print('Support router metadata: %s' % router_path)
+        self.support_experts_summary = None
+        if self.support_experts['enabled']:
+            all_compound_indices = np.arange(
+                self.num_compounds, dtype=np.int64
+            )
+            cold_gates = self.supportExpertColdGateValues(
+                all_compound_indices
+            )
+            cold_mask = cold_gates > 0
+            warm_mask = ~cold_mask
+            self.support_experts_summary = {
+                'mode': self.support_experts['mode'],
+                'detach_cold_features': self.support_experts[
+                    'detach_cold_features'
+                ],
+                'pseudo_cold': self.data.pseudo_cold_info,
+                'cold_compounds': int(np.sum(cold_mask)),
+                'warm_compounds': int(np.sum(warm_mask)),
+                'context_available_compounds': int(np.sum(
+                    self.compound_context_available > 0
+                )),
+                'warm_weight_mean_abs': float(np.mean(np.abs(
+                    self.weight['context_herb_protein']
+                ))),
+                'cold_weight_mean_abs': float(np.mean(np.abs(
+                    self.weight['context_herb_protein_cold']
+                ))),
+            }
+            print(
+                'SCHE routing: warm=%d cold=%d; Hctx-P weight mean abs '
+                'warm=%.6f cold=%.6f.' % (
+                    self.support_experts_summary['warm_compounds'],
+                    self.support_experts_summary['cold_compounds'],
+                    self.support_experts_summary[
+                        'warm_weight_mean_abs'
+                    ],
+                    self.support_experts_summary[
+                        'cold_weight_mean_abs'
+                    ],
+                )
+            )
+            experts_path = os.path.join(
+                model_dir, 'support_conditioned_experts.json'
+            )
+            with open(experts_path, 'w', encoding='utf-8') as handle:
+                json.dump(
+                    self.support_experts_summary,
+                    handle,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                handle.write('\n')
+            print('SCHE metadata: %s' % experts_path)
         if self.use_context_interaction:
             context_weight_values = {
                 'compound_disease': np.mean(np.abs(self.weight['context_compound_disease'])),
@@ -2230,10 +2448,22 @@ class HDCTI(herbRecommender):
             pair_compound_contexts=pair_compound_contexts,
             residual_compound_contexts=residual_compound_contexts,
             target_residual_weight=self.weight.get('context_target_herb_residual'),
-            herb_protein_scale=self.supportContextGateValues(
-                state, compound_indices
+            herb_protein_scale=(
+                1.0 - self.supportExpertColdGateValues(compound_indices)
+                if self.support_experts['enabled']
+                else self.supportContextGateValues(
+                    state, compound_indices
+                )
             ),
-            base_score_scale=self.inductiveBaseGateValues(
+            base_score_scale=(
+                1.0 - self.supportExpertColdGateValues(compound_indices)
+                if self.support_experts['enabled']
+                else self.inductiveBaseGateValues(compound_indices)
+            ),
+            cold_herb_protein_weight=self.weight.get(
+                'context_herb_protein_cold'
+            ),
+            cold_herb_protein_scale=self.supportExpertColdGateValues(
                 compound_indices
             ),
         )
@@ -2265,6 +2495,13 @@ class HDCTI(herbRecommender):
         else:
             raise ValueError('Unsupported pair decoder: %s' % decoder_type)
 
+        support_expert_cold_gates = None
+        if self.support_experts['enabled']:
+            support_expert_cold_gates = self.supportExpertColdGateValues(
+                np.arange(self.num_compounds, dtype=np.int64)
+            )
+            scores *= (1.0 - support_expert_cold_gates)[:, None]
+
         if self.inductive_context['suppress_base_zero_support']:
             base_gates = self.inductiveBaseGateValues(
                 np.arange(self.num_compounds, dtype=np.int64)
@@ -2289,7 +2526,20 @@ class HDCTI(herbRecommender):
                     np.arange(self.num_compounds, dtype=np.int64),
                 )
                 herb_protein_scores *= support_gates[:, None]
+            if self.support_experts['enabled']:
+                herb_protein_scores *= (
+                    1.0 - support_expert_cold_gates
+                )[:, None]
             scores += herb_protein_scores
+            if self.support_experts['enabled']:
+                cold_herb_protein_scores = (
+                    self.u_context
+                    * self.weight['context_herb_protein_cold']
+                ).dot(self.i.transpose())
+                scores += (
+                    cold_herb_protein_scores
+                    * support_expert_cold_gates[:, None]
+                )
         if self.context_terms['herb_disease']:
             scores += (self.u_context * self.weight['context_herb_disease']).dot(
                 self.i_context.transpose()

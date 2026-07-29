@@ -5,7 +5,10 @@ from collections import defaultdict
 import pandas as pd
 import os
 
-from util.model_components import resolve_support_router
+from util.model_components import (
+    resolve_support_experts,
+    resolve_support_router,
+)
 from util.support_router import select_pseudo_cold_compounds
 
 
@@ -55,6 +58,11 @@ class Rating(object):
         self.config = config
         self.protocol = config['experiment.protocol'].strip().lower() if config.contains('experiment.protocol') else 'legacy'
         self.support_router = resolve_support_router(config)
+        self.support_experts = resolve_support_experts(config)
+        if self.support_router['enabled'] and self.support_experts['enabled']:
+            raise ValueError(
+                'support.router and support.experts cannot be enabled together.'
+            )
         self.evalSettings = OptionConf(self.config['evaluation.setup'])
         self.herb = {} #map herb names to id
         self.disease = {} #map disease names to id
@@ -153,12 +161,17 @@ class Rating(object):
             overlap = seen_train_positive_pairs & test_positive_pairs
             if overlap:
                 raise ValueError('Strict C-P graph contains %d test positive edges.' % len(overlap))
+            pseudo_cold_settings = None
             if self.support_router['enabled']:
+                pseudo_cold_settings = self.support_router
+            elif self.support_experts['enabled']:
+                pseudo_cold_settings = self.support_experts
+            if pseudo_cold_settings is not None:
                 pseudo_info = select_pseudo_cold_compounds(
                     train_positive_pairs,
                     eligible_compounds={str(value) for value in HC[1].unique()},
-                    ratio=self.support_router['pseudo_cold_ratio'],
-                    seed=self.support_router['seed'],
+                    ratio=pseudo_cold_settings['pseudo_cold_ratio'],
+                    seed=pseudo_cold_settings['seed'],
                 )
                 self.pseudo_cold_info = pseudo_info
                 self.pseudo_cold_compounds = set(
@@ -187,9 +200,9 @@ class Rating(object):
                     )
                 )
         else:
-            if self.support_router['enabled']:
+            if self.support_router['enabled'] or self.support_experts['enabled']:
                 raise ValueError(
-                    'Support routing requires experiment.protocol=strict.'
+                    'Support routing and experts require experiment.protocol=strict.'
                 )
             self.cpassociation = self.full_cpassociation
         self.pdassociation = PD.values.tolist()
