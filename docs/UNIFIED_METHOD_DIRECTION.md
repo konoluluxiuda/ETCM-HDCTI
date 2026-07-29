@@ -61,9 +61,10 @@ SCHE 的 cold 参数已经有效更新，CPU/GPU 结果一致，因此失败不�
 
 ```text
 H-C / P-D 双超图编码
++ HPLGA 线性全局注意力候选
 + 候选级 Hctx-P
 + SDIS
-+ 待验证的统一训练增强
++ Dot 解码器
 ```
 
 CHCR 不进入最终主配置，只在补充材料中报告为普通随机边条件下的辅助实验。
@@ -72,31 +73,41 @@ CHCR 不进入最终主配置，只在补充材料中报告为普通随机边条
 如果论文必须保持“通用随机边 CTI”定位，则应反向处理：SDIS 只能作为额外
 cold-start 实验，最终模型不能把它列为核心通用创新。两条定位不能同时作为主线。
 
-## 5. 下一候选的约束
+## 5. 支持掩码候选审计结果
 
-下一候选必须与 Hctx-P、SDIS 在同一个 cold-start 配置中联合训练和推理。当前
-只允许先审计“共享上下文 head 的支持掩码 episodic training”：
+原定“共享上下文 head 的支持掩码 episodic training”已完成近邻工作审计，
+判定为**创新性 No-Go**。DropoutNet 已通过训练期协同输入 dropout 显式模拟
+cold-start；PT-GNN 已从 warm 实体构造 cold episode；CGRC 更直接地掩蔽随机
+物品的全部交互边并重建关系。CLCRec 与 ALDI 还分别覆盖了内容—协同对比和
+warm-to-cold 蒸馏。
 
-1. 仍使用唯一共享的 `context_herb_protein`，不再建立独立 cold head；
-2. 在训练折内确定性选择固定 10% compound 作为 pseudo-cold；
-3. 从训练 C-P 图移除其正边，但保留 pair 标签；
-4. 对 pseudo-cold pair 关闭 compound-ID base，只使用共享 Hctx-P；
-5. 训练和真实 cold-start 推理使用相同 SDIS 规则；
-6. 不启用 CHCR，不搜索 ratio、seed、soft gate 或数据库特定参数。
+因此：
 
-该名称和创新性尚未冻结。实现前必须先核验 cold-start episodic/masked-node
-训练的近邻工作，避免把已有常见做法重新命名。
+1. 不实现该候选，不进入单折 Pilot；
+2. 不搜索 pseudo-cold ratio、mask seed、蒸馏或对比权重；
+3. 现有 SCHE masking 代码只保留为失败实验基础设施；
+4. `Hctx-P + SDIS` 仍是唯一 cold-start 最终模型候选；
+5. 若仍增加第三个模型机制，必须先证明其不等价于 interaction dropout、
+   masked graph reconstruction、warm-to-cold distillation、内容—协同对比或
+   warm/cold 双专家。
 
-首个 Pilot 仍只允许使用 TCM-Suite cold-start fold 1 inner-validation，outer
-test 关闭。若不能达到冻结 SDIS `0.669984`，立即停止，不进入四库。
+完整证据见
+[支持掩码 Episodic 训练近邻工作审计](SUPPORT_MASKED_EPISODIC_AUDIT.md)。
 
 ## 6. 投稿状态
 
-在统一训练增强通过前：
+在投稿定位冻结前：
 
 * 不绘制最终 `Ours-full` 方法图；
 * 不撰写“三项模型创新已经闭环”；
 * 不把 CHCR 与 SDIS 分别放进两个主场景后合称统一框架；
 * 可以继续整理数据、基线、案例和复现材料，但正式 Methods 只能写已冻结事实；
-* 若新候选再次失败，应接受当前模型创新不足，选择降低论文方法主张、调整目标
-  期刊，或引入真正可跨库获得的外部属性，而不是继续搜索同族门控。
+* 当前支持掩码候选已在创新性门槛停止，不能通过更名重新开放；
+* 当前可行的统一模型只有 `Hctx-P + SDIS`，第三项贡献优先由 Strict 四库
+  cold-start benchmark 与 ETCM2.0 数据/证据闭环承担；
+* 第三项模型候选现限定为 HPLGA，它补回被删除的全局依赖能力，不再搜索同族门控；
+* HPLGA 只有通过无二次张量测试、四库 validation-only Gate 和统一 cold-start
+  Gate 后，才能进入最终 `Ours-full`。
+
+HPLGA 的公式、近邻工作边界和预注册停止条件见
+[HYPERGRAPH_PAGERANK_LINEAR_ATTENTION.md](HYPERGRAPH_PAGERANK_LINEAR_ATTENTION.md)。

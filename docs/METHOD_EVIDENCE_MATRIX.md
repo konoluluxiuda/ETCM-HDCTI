@@ -78,6 +78,8 @@ CHCR 只改变训练目标：对已知训练正样本构造同 H-C degree 的反
 | M3-C | SDIS 校准分类 | 固定 0.5 阈值下的 F1 下降主要来自分数尺度变化，inner-validation 阈值可恢复分类表现 | 纯推理阈值校准后四库 F1 均提高，macro `+0.029535`，20/20 folds 提高 | A/C | 校准阈值必须逐折仅由 inner-validation 选择；固定 0.5 结果仍需披露 | [SELF_EXCLUDED_HERB_CONTEXT_AUDIT](SELF_EXCLUDED_HERB_CONTEXT_AUDIT.md) |
 | F1 | 场景化双配置证据 | CHCR 与 SDIS 分别说明随机边上下文正则和 cold-start 支持度失配 | 两套四库冻结协议；组合实验显式 No-Go | 补充 | 作者已决定双配置不构成最终统一方法，不能写为 `Ours-full` 或核心框架贡献 | [最终方法统一性决策](UNIFIED_METHOD_DIRECTION.md)、[SELF_EXCLUDED_HERB_CONTEXT_AUDIT](SELF_EXCLUDED_HERB_CONTEXT_AUDIT.md) |
 | C1 | SCHE 统一候选 | 独立 warm/cold Hctx-P 参数与逐样本支持度路由未能消除共享参数冲突 | TCM-Suite cold-start fold 1 GPU inner-validation AUPR `0.650499`，低于冻结 SDIS `0.669984`，差值 `-0.019485`；CPU 复现为 `0.650017` | No-Go | 不进入四库，不搜索 ratio、seed、margin、weight、soft gate 或数据库特定参数；不能写入最终贡献 | [SUPPORT_CONDITIONED_DUAL_EXPERT](SUPPORT_CONDITIONED_DUAL_EXPERT.md) |
+| C2 | 支持掩码 episodic training | 用 warm compound 制造零 C-P 支持的 pseudo-cold episode 具有工程合理性，但不能作为独立新机制 | DropoutNet、PT-GNN 和 CGRC 已分别覆盖协同输入 dropout、warm-to-cold episode 与全交互边掩码重建；CLCRec/ALDI 覆盖对比和蒸馏变体 | No-Go（创新性） | 不实现、不进入 Pilot；若后续作为训练技巧使用，必须引用近邻工作并降级表述 | [SUPPORT_MASKED_EPISODIC_AUDIT](SUPPORT_MASKED_EPISODIC_AUDIT.md) |
+| C3 | HPLGA 线性全局注意力 | 用 H-C/P-D 超图 PageRank 调制核化线性全局读取，以线性复杂度补回被删除的全节点感受野 | 原论文注意力消融提供问题依据；公式与复杂度审计已完成，尚无模型结果 | Conditional Go | 线性 attention、PageRank attention 和 hypergraph Transformer 均有近邻工作；只有 Gate 0/1 和统一 cold-start Gate 均通过后才可列为第三机制 | [HYPERGRAPH_PAGERANK_LINEAR_ATTENTION](HYPERGRAPH_PAGERANK_LINEAR_ATTENTION.md) |
 | D1 | ETCM2.0 数据工作 | 构建具有实体映射、关系审计和剪枝依据的 ETCM2.0 CTI 数据集，用于外部验证和案例研究 | mention10/core 构建、数据统计、关系交集与映射审查 | A（数据） | mention10 是证据频次过滤；不能声称覆盖 ETCM2.0 全部实体 | [DATASET_STATISTICS](DATASET_STATISTICS.md)、[ETCM2_CORE_NOTES](ETCM2_CORE_NOTES.md) |
 | D2 | ETCM2.0 Top-K 独立核验 | 冻结候选中存在可由外部实验支持的预测，同时高排名候选也可能与直接实验冲突 | 检索前冻结 15 个 pair，完成 45 个 BindingDB/ChEMBL/PubMed 查询；B1 2 条、E 12 条、Conflict 1 条 | B（案例） | `2/15` 不是总体 precision；E 不是确认负例；页面路径不是独立 C-P 证据 | [ETCM Top-K 核验](ETCM_TOPK_MANUAL_VALIDATION.md)、[代表案例](ETCM_REPRESENTATIVE_CASES.md) |
 
@@ -109,6 +111,7 @@ CHCR 只改变训练目标：对已知训练正样本构造同 H-C degree 的反
 | Direct self-exclusion | 相对 SD-only 为 0/4 提高，macro `-0.025989` | 作为 SDIS 消融 No-Go |
 | SDIS + CHCR | TCM-Suite `-0.019451`，违反单库退化上限 | 必须披露，支持场景化配置而非插件堆叠 |
 | SCHE warm/cold 双专家 | TCM-Suite fold 1 GPU validation AUPR `0.650499`，相对冻结 SDIS `-0.019485`；CPU 复现差异仅 `0.000482` | 预注册首门槛即失败，停止四库和统一模型主张 |
+| 支持掩码 episodic training | 与 DropoutNet、PT-GNN、CGRC 的 cold-start simulation 核心动作高度同构 | 在创新性门槛停止，不以改名方式进入新 Pilot |
 | CHCR 四库普适机制 | SymMap 仅 1/5 folds 通过 donor-control | 限制机制主张，不否定其已观察的性能结果 |
 
 ## 7. 论文表格映射
@@ -194,11 +197,12 @@ Herb context 与可解释路径
 | 已完成 | 同一 Strict 协议下的外部同输入对比表 | Dual-HGNN-CTI、LightGCN-CTI、R-GCN-CTI 与稀疏 HGT-CTI 的四库 16 个外层五折任务全部完成；R-GCN 是四个基线中最强者。最终随机边模型相对 R-GCN 的 macro AUPR 为 `+0.001408`，在 SymMap/ETCM 较高、TCMSP 基本持平、TCM-Suite 略低 | 两个冻结结果源及逐行配置哈希已接入 `FINAL_RESULTS_TABLES.md`；HGT 使用统一 64 入邻居上限，其 ETCM 结果不代表无采样完整 HGT。停止库特定调参；作者材料若到达，再追加可原样复现的属性模型 |
 | 加强 | 除 ETCM CHCR 外，其他最终配置主要为单训练 seed | fold 方差不能代表初始化稳定性 | 在主表冻结后选择一个代表库补 3 seed，或在局限性中明确披露 |
 | 可选 | disease-aware / target cold-start 未形成四库最终结果 | 可增强对原论文和困难泛化场景的覆盖 | 仅在主表完成且计算预算允许时追加，不阻塞当前模型冻结 |
-| 阻塞 | 最终方法缺少唯一训练/推理配置 | CHCR 与 SDIS 的双场景拼接不被接受，SCHE 统一候选也已 No-Go | 优先收窄到 compound cold-start；文献审计通过后，只允许一个共享 Hctx-P + SDIS 的支持掩码 episodic training Pilot |
+| 阻塞 | HPLGA 尚未通过模型门槛 | 第三机制公式已形成，但线性/PageRank/超图 attention 均有直接近邻，当前没有有效性证据 | 只实现 Gate 0；通过后执行冻结四库 validation-only Gate 1，再决定是否进入统一 cold-start |
 
 ## 9. 当前决策
 
-模型搜索继续冻结，不重新开启 SACR、同族注意力、donor、margin 或数据集特定路由调参。
+既有 No-Go 路线继续冻结，不重新开启 SACR、donor、margin、pseudo-cold 或
+数据集特定路由调参。唯一开放候选为 HPLGA，且只允许执行预注册 Gate。
 
 四库无稠密注意力随机边 Hctx-P 直接消融已经完成：
 
@@ -218,8 +222,13 @@ ETCM Top-K 证据闭环也已完成，见
 路径数量替换。同一 Strict 协议下的四种外部拓扑基线和代表案例图也均已完成。
 已有方法实验和外部同输入基线结果均冻结，但最终方法尚未冻结。唯一重新开放的
 SCHE 统一模型 Pilot 已按预注册门槛判定 No-Go；作者同时否决将 CHCR 与 SDIS
-按两个场景拼接为最终框架。下一阶段不直接写最终 Methods，而是先把研究问题
-收窄为 compound cold-start，并对共享 Hctx-P + SDIS 的支持掩码 episodic
-training 做近邻工作审计。该候选通过文献和单折门槛前，不进入四库或论文贡献。
+按两个场景拼接为最终框架。研究问题已经收窄为 compound cold-start。共享
+Hctx-P + SDIS 的支持掩码 episodic training 也已完成近邻工作审计，并因与
+DropoutNet、PT-GNN、CGRC 等方法高度同构而在创新性门槛判定 No-Go，不再进入
+单折或四库实验。当前已冻结主模型仍为 `Hctx-P + SDIS`。为补足第三项模型
+机制，现只开放 HPLGA：以 H-C/P-D 超图 PageRank 调制核化线性全局注意力，
+补回被关闭的全局节点依赖。该候选不等价于上述 masking、蒸馏、对比或双专家，
+但 PageRank attention 和线性 graph Transformer 已有近邻，因此必须先通过
+Gate 0/1 和统一 cold-start Gate，才能改变最终方法状态。
 
 执行协议、预注册门槛和输出文件见 [HCTX_NO_DENSE_ABLATION.md](HCTX_NO_DENSE_ABLATION.md)。当前实现会在运行前校验四库配置 SHA-256，并只允许 `model.variant`、`context.interaction` 与 `context.herb_protein` 三项不同；完成后自动输出逐折配对结果和 `PASS/NO-GO` 判定。
