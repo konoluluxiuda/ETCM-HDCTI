@@ -24,6 +24,8 @@ class Recommender(object):
         self.isOutput = True
         self.data = Rating(self.config, trainingSet, testSet)
         self.validationData = []
+        self.validationDataByState = {}
+        self.validationAggregation = None
         # print(self.data.herb)
         # print(self.data.disease)
         # print(len(self.data.disease))
@@ -224,10 +226,15 @@ class Recommender(object):
                 raise ValueError(
                     'evaluation.outer.test=False requires early stopping with a validation metric.'
                 )
+            aggregation = summary.get('aggregation')
             metric_name = 'Validation-' + summary['metric'].upper()
+            if aggregation == 'macro_support_states':
+                metric_name = 'Validation-Macro-' + summary['metric'].upper()
             print(
                 'Outer test evaluation skipped for model selection; best %s: %.6f at epoch %d.' % (
-                    summary['metric'].upper(), summary['best_value'], summary['best_epoch']
+                    metric_name.replace('Validation-', ''),
+                    summary['best_value'],
+                    summary['best_epoch'],
                 )
             )
             self.measure = ['%s:%s' % (metric_name, summary['best_value'])]

@@ -281,5 +281,60 @@ warm-warm、cold-warm、warm-cold 和 cold-cold 四个互斥测试集合。四�
 原 artifact，源 manifest 或任一 TSV 哈希变化都会拒绝加载。现有
 support-complete 与 Strict 回归测试共 39 项通过。
 
-下一步实现四状态一致的 inner-validation；在此之前不接模型、不运行四库
-outer test。
+## 2026-07-30：四状态宏平均内层验证入口
+
+新增：
+
+```text
+build_four_state_inner_validation(...)
+evaluation.setup=-four-state-unit
+configs/HDCTI_tcmsuite_four_state_no_context_unit_smoke.conf
+```
+
+四状态入口加载同一份冻结训练图，并在该图内部重新生成 warm-warm、
+cold-warm、warm-cold、cold-cold 四个验证集合。早停逐状态计算 AUPR，并使用
+四状态等权宏平均选择 checkpoint，避免大状态凭记录数主导模型选择。
+
+TCM-Suite `C0/P0` 的实际内层规模：
+
+```text
+inner training: 19,246 positive + 19,246 negative
+warm-warm:       2,138 positive +  2,138 negative
+cold-warm:       3,274 positive +  3,274 negative
+warm-cold:       2,253 positive +  2,253 negative
+cold-cold:         391 positive +    391 negative
+assignment hash: a21e5c78fa05...
+```
+
+本阶段只运行 2 epoch NoContext smoke，且设置
+`evaluation.outer.test=False`。外层四状态未被读取用于选择或调参。
+
+### TCM-Suite NoContext Smoke 结果
+
+该配置已在 `HDCTI_tfnew` 环境真实完成，当前执行容器未提供可用 CUDA，故使用
+CPU。训练 2 epoch，总运行时间 `9.11 s`：
+
+```text
+epoch 1:
+  warm-warm AUPR  0.456376
+  cold-warm AUPR  0.645443
+  warm-cold AUPR  0.660668
+  cold-cold AUPR  0.427383
+  macro AUPR      0.547467
+
+epoch 2:
+  warm-warm AUPR  0.539463
+  cold-warm AUPR  0.414484
+  warm-cold AUPR  0.811799
+  cold-cold AUPR  0.432002
+  macro AUPR      0.549437
+```
+
+系统按 epoch 2 的宏 AUPR 恢复 checkpoint，并输出：
+
+```text
+Validation-Macro-AUPR: 0.5494369831663033
+```
+
+该结果只验收四状态加载、逐状态评价、宏平均早停、checkpoint 保存/恢复及
+关闭外层测试的控制链路。2 epoch 下各状态数值不用于模型优劣判断。

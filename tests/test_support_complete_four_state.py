@@ -7,6 +7,7 @@ from tools.prepare_four_state_support_unit import (
 )
 from tools.prepare_support_complete_splits import prepare_dataset_manifest
 from util.support_complete_split import (
+    build_four_state_inner_validation,
     build_four_state_support_unit,
     load_four_state_support_artifact,
 )
@@ -136,6 +137,81 @@ class SupportCompleteFourStateTest(unittest.TestCase):
             build_four_state_support_unit(
                 manifest_path, 0, 0, warm_holdout_ratio=0.0, seed=29
             )
+
+    def test_inner_validation_has_four_disjoint_support_states(self):
+        _, all_positive_edges = self.make_manifest()
+        outer_training = [
+            [compound_id, protein_id, 1.0]
+            for compound_id, protein_id in all_positive_edges
+        ]
+        inner_training, states, metadata = (
+            build_four_state_inner_validation(
+                outer_training,
+                all_positive_edges,
+                ratio=0.25,
+                seed=31,
+                unit_key="synthetic",
+            )
+        )
+
+        train_compounds = {row[0] for row in inner_training}
+        train_proteins = {row[1] for row in inner_training}
+        train_pairs = {(row[0], row[1]) for row in inner_training}
+        seen_validation_pairs = set()
+        expected_support = {
+            "warm_warm": (True, True),
+            "cold_warm": (False, True),
+            "warm_cold": (True, False),
+            "cold_cold": (False, False),
+        }
+        for state, records in states.items():
+            positives = [row for row in records if row[2] > 0]
+            negatives = [row for row in records if row[2] <= 0]
+            self.assertEqual(len(positives), len(negatives))
+            pairs = {(row[0], row[1]) for row in records}
+            self.assertFalse(train_pairs & pairs)
+            self.assertFalse(seen_validation_pairs & pairs)
+            seen_validation_pairs.update(pairs)
+            compound_warm, protein_warm = expected_support[state]
+            for compound_id, protein_id, _ in records:
+                self.assertEqual(
+                    compound_id in train_compounds, compound_warm
+                )
+                self.assertEqual(
+                    protein_id in train_proteins, protein_warm
+                )
+            self.assertFalse({
+                (row[0], row[1]) for row in negatives
+            } & all_positive_edges)
+
+        self.assertEqual(
+            metadata["strategy"],
+            "support_complete_four_state_inner",
+        )
+        self.assertEqual(
+            metadata["inner_train_positive_count"],
+            metadata["inner_train_negative_count"],
+        )
+        self.assertEqual(set(metadata["states"]), set(states))
+
+    def test_inner_validation_is_deterministic(self):
+        _, all_positive_edges = self.make_manifest()
+        outer_training = [
+            [compound_id, protein_id, 1.0]
+            for compound_id, protein_id in all_positive_edges
+        ]
+        first = build_four_state_inner_validation(
+            outer_training, all_positive_edges, 0.25, 31, "synthetic"
+        )
+        second = build_four_state_inner_validation(
+            outer_training, all_positive_edges, 0.25, 31, "synthetic"
+        )
+
+        self.assertEqual(first, second)
+        self.assertEqual(
+            first[2]["assignments_sha256"],
+            second[2]["assignments_sha256"],
+        )
 
     def test_artifact_is_reused_and_verified(self):
         manifest_path, _ = self.make_manifest()

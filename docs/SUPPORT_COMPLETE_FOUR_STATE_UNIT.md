@@ -103,10 +103,65 @@ tools/prepare_four_state_support_unit.py
 
 相关 support-complete 与 Strict 回归测试共 39 项通过。
 
-## 6. 下一步
+## 6. 四状态内层验证与模型入口
 
-1. 为共享单元构建同样四状态完备的 inner-validation；
-2. 实现单 checkpoint 的支持状态解耦评分：
+现已新增：
+
+```text
+build_four_state_inner_validation(...)
+evaluation.setup=-four-state-unit
+```
+
+外层共享训练 artifact 的训练正边会再次按固定 `validation.seed` 构造一份
+内层训练图，并同时生成四类互斥验证集合。checkpoint 选择不是把四类记录直接
+混合，而是分别计算指标后做等权宏平均：
+
+$$
+\operatorname{MacroAUPR}
+=\frac{
+\operatorname{AUPR}_{WW}
++\operatorname{AUPR}_{CW}
++\operatorname{AUPR}_{WC}
++\operatorname{AUPR}_{CC}
+}{4}
+$$
+
+因此每种支持状态对 checkpoint 选择的权重均为 25%，不受各状态样本量影响。
+当前入口要求：
+
+```text
+experiment.protocol=strict
+evaluation.setup=-four-state-unit
+support.four.state.manifest=.../four_state_seed_2026_c0_p0/manifest.json
+early.stopping=True
+negative.strategy=random
+```
+
+`random` 只表示不再执行额外动态负采样；训练和验证负例已经由四状态协议按
+固定 seed 重建并冻结。
+
+TCM-Suite 实际内层规模为：
+
+| 分区 | 正例 | 负例 |
+|---|---:|---:|
+| inner training | 19,246 | 19,246 |
+| warm-warm validation | 2,138 | 2,138 |
+| cold-warm validation | 3,274 | 3,274 |
+| warm-cold validation | 2,253 | 2,253 |
+| cold-cold validation | 391 | 391 |
+
+内层 assignment SHA-256 为：
+
+```text
+a21e5c78fa05d95fa4a4461144b8902835e90909ddc6bfdf51ed34207f250b75
+```
+
+有 409 条只连接被隔离端点、无法归入四个严格支持状态的正边作为缓冲边丢弃，
+不会进入训练或验证。
+
+## 7. 下一步
+
+1. 实现单 checkpoint 的支持状态解耦评分：
 
 ```text
 warm-warm: base + Hctx-P
@@ -115,6 +170,6 @@ warm-cold: base
 cold-cold: isolated Hctx-Dctx
 ```
 
-3. 所有路由只读取当前训练单元的 C-P degree 与 H-C/P-D 可用性；
-4. 首个模型 Gate 仍只用 TCM-Suite `C0-P0` inner-validation，不先读取四库
+2. 所有路由只读取当前训练单元的 C-P degree 与 H-C/P-D 可用性；
+3. 首个模型 Gate 只用 TCM-Suite `C0-P0` inner-validation，不先读取四库
    outer test。

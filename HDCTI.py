@@ -1749,14 +1749,56 @@ class HDCTI(herbRecommender):
         )
 
     def evaluateValidation(
-            self, state, metric, mask_compound=False, mask_protein=False):
-        if not self.validationData:
+            self, state, metric, mask_compound=False, mask_protein=False,
+            validation_records=None):
+        if (
+            validation_records is None
+            and getattr(self, 'validationDataByState', None)
+        ):
+            state_values = {}
+            for support_state in (
+                    'warm_warm', 'cold_warm', 'warm_cold', 'cold_cold'):
+                records = self.validationDataByState.get(support_state)
+                if not records:
+                    raise ValueError(
+                        'Four-state validation is missing %s records.' %
+                        support_state
+                    )
+                state_values[support_state] = self.evaluateValidation(
+                    state,
+                    metric,
+                    mask_compound=mask_compound,
+                    mask_protein=mask_protein,
+                    validation_records=records,
+                )
+            macro_value = float(np.mean(list(state_values.values())))
+            self.validation_state_metrics = state_values
+            print(
+                'validation support states: %s macro-%s=%.6f' % (
+                    ' '.join(
+                        '%s=%.6f' % (name, state_values[name])
+                        for name in (
+                            'warm_warm', 'cold_warm',
+                            'warm_cold', 'cold_cold',
+                        )
+                    ),
+                    metric.upper(),
+                    macro_value,
+                )
+            )
+            return macro_value
+
+        records = (
+            self.validationData
+            if validation_records is None else validation_records
+        )
+        if not records:
             raise ValueError('Early stopping is enabled but no inner validation records were provided.')
 
         compound_indices = []
         protein_indices = []
         labels = []
-        for compound_id, protein_id, rating in self.validationData:
+        for compound_id, protein_id, rating in records:
             compound_key = str(compound_id)
             protein_key = str(protein_id)
             if compound_key not in self.data.compound or protein_key not in self.data.protein:
@@ -1883,6 +1925,7 @@ class HDCTI(herbRecommender):
         if early_stopping['enabled'] and not self.validationData:
             raise ValueError('early.stopping=True requires a non-empty inner validation split.')
         tracker = None
+        best_validation_state_metrics = None
         if early_stopping['enabled']:
             tracker = EarlyStoppingTracker(
                 early_stopping['patience'], early_stopping['min_delta']
@@ -1992,6 +2035,10 @@ class HDCTI(herbRecommender):
                 improved, should_stop = tracker.update(validation_value, epoch + 1)
                 if improved:
                     saver.save(self.sess, model_path)
+                    if getattr(self, 'validation_state_metrics', None):
+                        best_validation_state_metrics = dict(
+                            self.validation_state_metrics
+                        )
                 print(
                     'validation: epoch %d %s=%.6f best=%.6f best_epoch=%d stale=%d/%d%s' % (
                         epoch + 1,
@@ -2015,7 +2062,12 @@ class HDCTI(herbRecommender):
                 'best_value': tracker.best_value,
                 'epochs_completed': epochs_completed,
                 'metric': early_stopping['metric'],
+                'aggregation': self.validationAggregation,
             }
+            if best_validation_state_metrics is not None:
+                self.early_stopping_summary['state_values'] = (
+                    best_validation_state_metrics
+                )
             print(
                 'Restored best validation checkpoint: epoch %d %s=%.6f' % (
                     tracker.best_epoch,

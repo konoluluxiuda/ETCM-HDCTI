@@ -1,7 +1,9 @@
 from util.config import OptionConf
 from util.dataSplit import *
 from util.support_complete_split import (
+    build_four_state_inner_validation,
     build_support_state_inner_validation,
+    load_four_state_support_artifact,
     load_support_complete_unit,
     read_pairs,
 )
@@ -31,6 +33,8 @@ class HDR(object):
         self.strictManifest = None
         self.supportUnitMetadata = None
         self.supportValidationData = []
+        self.supportValidationDataByState = {}
+        self.supportTestDataByState = {}
         self.supportInnerValidationMetadata = None
         self.ratingConfig = OptionConf(config['ratings.setup'])
         self.earlyStopping = resolve_early_stopping(config)
@@ -44,12 +48,19 @@ class HDR(object):
             if self.protocol == 'strict':
                 has_cv = self.evaluation.contains('-cv')
                 has_support_unit = self.evaluation.contains('-support-unit')
-                if has_cv == has_support_unit:
+                has_four_state_unit = self.evaluation.contains(
+                    '-four-state-unit'
+                )
+                if sum((
+                        has_cv, has_support_unit, has_four_state_unit)) != 1:
                     raise ValueError(
                         'Strict protocol requires exactly one of '
-                        'evaluation.setup=-cv K or -support-unit.'
+                        'evaluation.setup=-cv K, -support-unit, or '
+                        '-four-state-unit.'
                     )
-                if has_support_unit:
+                if has_four_state_unit:
+                    self._loadFourStateSupportUnit()
+                elif has_support_unit:
                     self._loadSupportUnit()
                 else:
                     k = int(self.evaluation['-cv'])
@@ -213,10 +224,176 @@ class HDR(object):
             )
 
 
+    def _loadFourStateSupportUnit(self):
+        if self.negativeSampling['strategy'] != 'random':
+            raise ValueError(
+                'Four-state manifests already freeze training negatives; '
+                'negative.strategy must be random.'
+            )
+        if not self.config.contains('support.four.state.manifest'):
+            raise ValueError(
+                'Four-state configuration requires '
+                'support.four.state.manifest.'
+            )
+        if not self.earlyStopping['enabled']:
+            raise ValueError(
+                'Four-state model selection requires early.stopping=True.'
+            )
+
+        manifest_path = Path(
+            self.config['support.four.state.manifest']
+        ).expanduser().resolve()
+        artifact_manifest = json.loads(
+            manifest_path.read_text(encoding='utf-8')
+        )
+        source_manifest_path = Path(
+            artifact_manifest['source_manifest']['path']
+        ).expanduser().resolve()
+        source_manifest = json.loads(
+            source_manifest_path.read_text(encoding='utf-8')
+        )
+        config_dataset_dir = Path(
+            self.config['datapath']
+        ).expanduser().resolve().parent
+        manifest_dataset_dir = Path(
+            source_manifest['sources']['C_P']['path']
+        ).resolve().parent
+        if config_dataset_dir != manifest_dataset_dir:
+            raise ValueError(
+                'Four-state manifest dataset does not match datapath '
+                'directory.'
+            )
+
+        (
+            self.trainingData,
+            self.supportTestDataByState,
+            self.supportUnitMetadata,
+        ) = load_four_state_support_artifact(manifest_path)
+        state_order = (
+            'warm_warm', 'cold_warm', 'warm_cold', 'cold_cold'
+        )
+        self.testData = [
+            row
+            for state in state_order
+            for row in self.supportTestDataByState[state]
+        ]
+        self.strictManifest = source_manifest
+        self.splitStrategy = 'support_complete_four_state'
+
+        base_seed = (
+            int(self.config['random.seed'])
+            if self.config.contains('random.seed') else 2026
+        )
+        validation_seed = (
+            int(self.config['validation.seed'])
+            if self.config.contains('validation.seed')
+            else base_seed + 100000
+        )
+        all_positive_pairs = read_pairs(
+            source_manifest['sources']['C_P']['path']
+        )
+        (
+            self.trainingData,
+            self.supportValidationDataByState,
+            self.supportInnerValidationMetadata,
+        ) = build_four_state_inner_validation(
+            self.trainingData,
+            all_positive_pairs,
+            self.earlyStopping['ratio'],
+            validation_seed,
+            self.supportUnitMetadata['unit_key'],
+        )
+        self.supportValidationData = [
+            row
+            for state in state_order
+            for row in self.supportValidationDataByState[state]
+        ]
+        state_counts = ', '.join(
+            '%s=+%d/-%d' % (
+                state,
+                self.supportInnerValidationMetadata[
+                    'states'
+                ][state]['positive_count'],
+                self.supportInnerValidationMetadata[
+                    'states'
+                ][state]['negative_count'],
+            )
+            for state in state_order
+        )
+        print(
+            'Strict four-state unit: unit=%s seed=%d '
+            'inner train=%d (+%d/-%d); validation %s; '
+            'discarded buffer positives=%d; hash=%s.' % (
+                self.supportUnitMetadata['unit_key'],
+                validation_seed,
+                len(self.trainingData),
+                self.supportInnerValidationMetadata[
+                    'inner_train_positive_count'
+                ],
+                self.supportInnerValidationMetadata[
+                    'inner_train_negative_count'
+                ],
+                state_counts,
+                self.supportInnerValidationMetadata[
+                    'discarded_buffer_positive_count'
+                ],
+                self.supportInnerValidationMetadata[
+                    'assignments_sha256'
+                ][:12],
+            )
+        )
+
+
     def execute(self):
         # import the model module
         importStr = 'from ' + self.config['model.name'] + ' import ' + self.config['model.name']
         exec(importStr)
+        if self.evaluation.contains('-four-state-unit'):
+            unit_key = self.supportUnitMetadata['unit_key']
+            recommender = self.config['model.name'] + (
+                "(self.config,self.trainingData,self.testData,'[1]')"
+            )
+            algorithm = eval(recommender)
+            algorithm.validationData = self.supportValidationData
+            algorithm.validationDataByState = (
+                self.supportValidationDataByState
+            )
+            algorithm.validationAggregation = 'macro_support_states'
+            seed = (
+                int(self.config['random.seed'])
+                if self.config.contains('random.seed') else 2026
+            )
+            set_global_seed(seed, reset_tensorflow_graph=True)
+            print(
+                'Four-state unit random seed: %d; unit: %s.' %
+                (seed, unit_key)
+            )
+            self.measure = algorithm.execute()
+            if not self.measure:
+                raise ValueError(
+                    'Four-state experiment returned no metrics.'
+                )
+            currentTime = strftime("%Y-%m-%d %H-%M-%S", localtime(time()))
+            outDir = OptionConf(self.config['output.setup'])['-dir']
+            variant = (
+                self.config['model.variant']
+                if self.config.contains('model.variant')
+                else self.config['model.name']
+            )
+            fileName = (
+                variant + '@' + currentTime + '-four-state-unit-' +
+                unit_key + '.txt'
+            )
+            result_lines = [
+                value if value.endswith('\n') else value + '\n'
+                for value in self.measure
+            ]
+            FileIO.writeFile(outDir, fileName, result_lines)
+            print(
+                'Four-state result (%s):\n%s' %
+                (unit_key, ''.join(result_lines))
+            )
+            return self.measure
         if self.evaluation.contains('-support-unit'):
             unit_key = self.supportUnitMetadata['unit_key']
             recommender = self.config['model.name'] + (

@@ -528,6 +528,177 @@ def build_four_state_support_unit(
     return training_records, state_records, metadata
 
 
+def build_four_state_inner_validation(
+        outer_training_records, all_positive_pairs, ratio, seed, unit_key):
+    """Build four support-state validation sets from one outer training graph."""
+    ratio = float(ratio)
+    if not 0.0 < ratio < 1.0:
+        raise ValueError(
+            "Four-state inner validation ratio must be between 0 and 1."
+        )
+    all_positive_pairs = {
+        (str(compound_id), str(protein_id))
+        for compound_id, protein_id in all_positive_pairs
+    }
+    outer_positive_edges = {
+        (str(compound_id), str(protein_id))
+        for compound_id, protein_id, label in outer_training_records
+        if float(label) > 0
+    }
+    if len(outer_positive_edges) < 2:
+        raise ValueError(
+            "Four-state inner validation requires at least two positives."
+        )
+
+    outer_compounds = {edge[0] for edge in outer_positive_edges}
+    outer_proteins = {edge[1] for edge in outer_positive_edges}
+    heldout_compounds = _heldout_entities(
+        outer_compounds, ratio, seed, "four_state_compound"
+    )
+    heldout_proteins = _heldout_entities(
+        outer_proteins, ratio, seed, "four_state_protein"
+    )
+    inner_key = "%s|inner_four_state" % unit_key
+    warm_warm_pool = {
+        edge for edge in outer_positive_edges
+        if edge[0] not in heldout_compounds
+        and edge[1] not in heldout_proteins
+    }
+    inner_positive_edges, warm_warm_positive_edges = (
+        _entity_preserving_pair_holdout(
+            warm_warm_pool,
+            ratio,
+            seed,
+            inner_key,
+        )
+    )
+    warm_compounds = {left for left, _ in inner_positive_edges}
+    warm_proteins = {right for _, right in inner_positive_edges}
+    state_positive_edges = {
+        "warm_warm": warm_warm_positive_edges,
+        "cold_warm": {
+            edge for edge in outer_positive_edges
+            if edge[0] in heldout_compounds and edge[1] in warm_proteins
+        },
+        "warm_cold": {
+            edge for edge in outer_positive_edges
+            if edge[0] in warm_compounds and edge[1] in heldout_proteins
+        },
+        "cold_cold": {
+            edge for edge in outer_positive_edges
+            if edge[0] in heldout_compounds
+            and edge[1] in heldout_proteins
+        },
+    }
+    empty_states = [
+        state for state, edges in state_positive_edges.items() if not edges
+    ]
+    if empty_states:
+        raise ValueError(
+            "Four-state inner validation for %s has no positives for: %s."
+            % (unit_key, ", ".join(empty_states))
+        )
+
+    inner_negative_records = build_compound_matched_training_negatives(
+        inner_positive_edges,
+        warm_proteins,
+        all_positive_pairs,
+        seed,
+        inner_key,
+    )
+    inner_positive_records = [
+        [compound_id, protein_id, 1.0]
+        for compound_id, protein_id in sorted(inner_positive_edges)
+    ]
+    inner_records = inner_positive_records + inner_negative_records
+    inner_pairs = {(row[0], row[1]) for row in inner_records}
+    state_endpoints = {
+        "warm_warm": (warm_compounds, warm_proteins),
+        "cold_warm": (heldout_compounds, warm_proteins),
+        "warm_cold": (warm_compounds, heldout_proteins),
+        "cold_cold": (heldout_compounds, heldout_proteins),
+    }
+    state_records = {}
+    state_metadata = {}
+    seen_validation_pairs = set()
+    state_order = (
+        "warm_warm", "cold_warm", "warm_cold", "cold_cold"
+    )
+    for state in state_order:
+        positive_records = [
+            [compound_id, protein_id, 1.0]
+            for compound_id, protein_id in sorted(
+                state_positive_edges[state]
+            )
+        ]
+        negative_records = _rectangle_negatives(
+            len(positive_records),
+            state_endpoints[state][0],
+            state_endpoints[state][1],
+            all_positive_pairs,
+            seed,
+            "%s|%s" % (inner_key, state),
+            forbidden_pairs=inner_pairs | seen_validation_pairs,
+        )
+        records = positive_records + negative_records
+        pairs = {(row[0], row[1]) for row in records}
+        if inner_pairs & pairs:
+            raise ValueError(
+                "Four-state inner %s validation overlaps training." % state
+            )
+        if seen_validation_pairs & pairs:
+            raise ValueError(
+                "Four-state inner validation pair appears in multiple states."
+            )
+        seen_validation_pairs.update(pairs)
+        state_records[state] = records
+        state_metadata[state] = {
+            "positive_count": len(positive_records),
+            "negative_count": len(negative_records),
+            "records_sha256": records_sha256(records),
+        }
+
+    assigned_positive_edges = (
+        inner_positive_edges
+        | set().union(*state_positive_edges.values())
+    )
+    discarded_positive_count = len(
+        outer_positive_edges - assigned_positive_edges
+    )
+    assignment_lines = [
+        "%s\t%s\t%d\t%s" % (
+            row[0], row[1], int(float(row[2]) > 0), partition
+        )
+        for partition, records in (
+            [("train", inner_records)]
+            + [
+                ("validation_%s" % state, state_records[state])
+                for state in state_order
+            ]
+        )
+        for row in records
+    ]
+    metadata = {
+        "strategy": "support_complete_four_state_inner",
+        "unit_key": str(unit_key),
+        "seed": int(seed),
+        "ratio": ratio,
+        "heldout_compounds": len(heldout_compounds),
+        "heldout_proteins": len(heldout_proteins),
+        "warm_compounds": len(warm_compounds),
+        "warm_proteins": len(warm_proteins),
+        "inner_train_positive_count": len(inner_positive_records),
+        "inner_train_negative_count": len(inner_negative_records),
+        "inner_train_records_sha256": records_sha256(inner_records),
+        "discarded_buffer_positive_count": discarded_positive_count,
+        "states": state_metadata,
+        "assignments_sha256": hashlib.sha256(
+            ("\n".join(sorted(assignment_lines)) + "\n").encode("utf-8")
+        ).hexdigest(),
+    }
+    return inner_records, state_records, metadata
+
+
 def _support_inner_metadata(
         mode, ratio, seed, inner_positive_edges, inner_negative_records,
         validation_positive_edges, validation_negative_records,
