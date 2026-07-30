@@ -1,9 +1,12 @@
 from util.config import OptionConf
 from util.dataSplit import *
+from util.support_complete_split import load_support_complete_unit
 from multiprocessing import Process, Manager
 from util.io import FileIO
 from time import strftime, localtime, time
 import os
+import json
+from pathlib import Path
 # import pandas as pd
 import numpy as np
 import mkl
@@ -22,6 +25,7 @@ class HDR(object):
         self.splitStrategy = DataSplit.resolveSplitStrategy(config)
         self.strictFolds = None
         self.strictManifest = None
+        self.supportUnitMetadata = None
         self.ratingConfig = OptionConf(config['ratings.setup'])
         self.earlyStopping = resolve_early_stopping(config)
         self.negativeSampling = resolve_negative_sampling(config)
@@ -32,17 +36,25 @@ class HDR(object):
         if self.config.contains('evaluation.setup'):
             self.evaluation = OptionConf(config['evaluation.setup'])
             if self.protocol == 'strict':
-                if not self.evaluation.contains('-cv'):
-                    raise ValueError('Strict protocol currently requires evaluation.setup=-cv K.')
-                k = int(self.evaluation['-cv'])
-                self.strictFolds, self.strictManifest = DataSplit.prepareStrictFolds(
-                    config, config['datapath'], k
-                )
-                print(
-                    'Strict split: strategy=%s seed=%d' %
-                    (self.strictManifest.get('split_strategy', 'pair_stratified'),
-                     self.strictManifest['seed'])
-                )
+                has_cv = self.evaluation.contains('-cv')
+                has_support_unit = self.evaluation.contains('-support-unit')
+                if has_cv == has_support_unit:
+                    raise ValueError(
+                        'Strict protocol requires exactly one of '
+                        'evaluation.setup=-cv K or -support-unit.'
+                    )
+                if has_support_unit:
+                    self._loadSupportUnit()
+                else:
+                    k = int(self.evaluation['-cv'])
+                    self.strictFolds, self.strictManifest = DataSplit.prepareStrictFolds(
+                        config, config['datapath'], k
+                    )
+                    print(
+                        'Strict split: strategy=%s seed=%d' %
+                        (self.strictManifest.get('split_strategy', 'pair_stratified'),
+                         self.strictManifest['seed'])
+                    )
             elif self.protocol == 'legacy':
                 self.trainingData = FileIO.loadDataSet(config, config['datapath'])
             else:
@@ -53,12 +65,139 @@ class HDR(object):
 
         print('Reading data and preprocessing...')
 
+    def _loadSupportUnit(self):
+        if self.earlyStopping['enabled']:
+            raise ValueError(
+                'Support-unit experiments require early.stopping=False until '
+                'support-state inner validation is implemented.'
+            )
+        if self.negativeSampling['strategy'] != 'random':
+            raise ValueError(
+                'Support-unit manifests already freeze training negatives; '
+                'negative.strategy must be random.'
+            )
+        required = ('support.manifest', 'support.mode')
+        missing = [key for key in required if not self.config.contains(key)]
+        if missing:
+            raise ValueError(
+                'Support-unit configuration is missing: %s.' %
+                ', '.join(missing)
+            )
+        manifest_path = Path(self.config['support.manifest']).expanduser().resolve()
+        mode = self.config['support.mode'].strip().lower()
+        kwargs = {}
+        if mode == 'target_cold':
+            if not self.config.contains('support.target.fold'):
+                raise ValueError(
+                    'target_cold support unit requires support.target.fold.'
+                )
+            kwargs['fold'] = int(self.config['support.target.fold'])
+        elif mode == 'double_cold':
+            double_keys = (
+                'support.compound.group',
+                'support.protein.group',
+            )
+            missing = [
+                key for key in double_keys if not self.config.contains(key)
+            ]
+            if missing:
+                raise ValueError(
+                    'double_cold support unit is missing: %s.' %
+                    ', '.join(missing)
+                )
+            kwargs['compound_group'] = int(
+                self.config['support.compound.group']
+            )
+            kwargs['protein_group'] = int(
+                self.config['support.protein.group']
+            )
+        else:
+            raise ValueError(
+                'support.mode must be target_cold or double_cold.'
+            )
+
+        manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+        config_dataset_dir = Path(
+            self.config['datapath']
+        ).expanduser().resolve().parent
+        manifest_dataset_dir = Path(
+            manifest['sources']['C_P']['path']
+        ).resolve().parent
+        if config_dataset_dir != manifest_dataset_dir:
+            raise ValueError(
+                'support.manifest dataset does not match datapath directory.'
+            )
+        self.trainingData, self.testData, self.supportUnitMetadata = (
+            load_support_complete_unit(
+                manifest_path,
+                mode,
+                **kwargs
+            )
+        )
+        self.strictManifest = manifest
+        self.splitStrategy = 'support_complete_' + mode
+        print(
+            'Strict support unit: mode=%s unit=%s seed=%d '
+            'train=%d (+%d/-%d) test=%d (+%d/-%d).' % (
+                mode,
+                self.supportUnitMetadata['unit_key'],
+                self.supportUnitMetadata['seed'],
+                len(self.trainingData),
+                self.supportUnitMetadata['training_positive_count'],
+                self.supportUnitMetadata['training_negative_count'],
+                len(self.testData),
+                self.supportUnitMetadata['test_positive_count'],
+                self.supportUnitMetadata['test_negative_count'],
+            )
+        )
 
 
     def execute(self):
         # import the model module
         importStr = 'from ' + self.config['model.name'] + ' import ' + self.config['model.name']
         exec(importStr)
+        if self.evaluation.contains('-support-unit'):
+            unit_key = self.supportUnitMetadata['unit_key']
+            recommender = self.config['model.name'] + (
+                "(self.config,self.trainingData,self.testData,'[1]')"
+            )
+            algorithm = eval(recommender)
+            algorithm.validationData = []
+            seed = (
+                int(self.config['random.seed'])
+                if self.config.contains('random.seed') else 2026
+            )
+            set_global_seed(seed, reset_tensorflow_graph=True)
+            print(
+                'Support unit random seed: %d; unit: %s.' %
+                (seed, unit_key)
+            )
+            self.measure = algorithm.execute()
+            if not self.measure:
+                raise ValueError(
+                    'Support-unit experiment returned no metrics.'
+                )
+            currentTime = strftime("%Y-%m-%d %H-%M-%S", localtime(time()))
+            outDir = OptionConf(self.config['output.setup'])['-dir']
+            variant = (
+                self.config['model.variant']
+                if self.config.contains('model.variant')
+                else self.config['model.name']
+            )
+            fileName = (
+                variant + '@' + currentTime + '-support-unit-' +
+                unit_key + '.txt'
+            )
+            result_lines = [
+                value if value.endswith('\n') else value + '\n'
+                for value in self.measure
+            ]
+            FileIO.writeFile(outDir, fileName, result_lines)
+            print(
+                'Support-unit result (%s):\n%s' %
+                (unit_key, ''.join(result_lines))
+            )
+            return self.measure
         if self.evaluation.contains('-cv'):
             k = int(self.evaluation['-cv'])
             if k < 2 or k > 10:  # limit to 2-10 fold cross validation
