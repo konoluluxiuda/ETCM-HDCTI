@@ -434,7 +434,7 @@ def build_four_state_support_unit(
     )
     training_positive_records = [
         [compound_id, protein_id, 1.0]
-        for compound_id, protein_id in training_positive_edges
+        for compound_id, protein_id in sorted(training_positive_edges)
     ]
     training_records = (
         training_positive_records + training_negative_records
@@ -454,7 +454,9 @@ def build_four_state_support_unit(
             "warm_warm", "cold_warm", "warm_cold", "cold_cold"):
         positive_records = [
             [compound_id, protein_id, 1.0]
-            for compound_id, protein_id in state_positive_edges[state]
+            for compound_id, protein_id in sorted(
+                state_positive_edges[state]
+            )
         ]
         negative_records = _rectangle_negatives(
             len(positive_records),
@@ -906,3 +908,62 @@ def load_support_complete_unit(
         "test_records_sha256": records_sha256(test_records),
     }
     return training_records, test_records, metadata
+
+
+def load_four_state_support_artifact(manifest_path):
+    """Load and verify one frozen shared four-state support artifact."""
+    manifest_path = Path(manifest_path).expanduser().resolve()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("version") != 1:
+        raise ValueError("Four-state artifact loader requires version 1.")
+    if manifest.get("protocol") != "support_complete_four_state":
+        raise ValueError("Unexpected four-state artifact protocol.")
+
+    source_manifest = Path(
+        manifest["source_manifest"]["path"]
+    ).expanduser().resolve()
+    if (
+        not source_manifest.exists()
+        or sha256_file(source_manifest)
+        != manifest["source_manifest"]["sha256"]
+    ):
+        raise ValueError("Four-state source manifest changed.")
+
+    root = manifest_path.parent
+    loaded = {}
+    for name, artifact in manifest["artifacts"].items():
+        path = root / artifact["path"]
+        if not path.exists() or sha256_file(path) != artifact["sha256"]:
+            raise ValueError(
+                "Four-state artifact changed: %s." % name
+            )
+        records = read_records(path)
+        if len(records) != int(artifact["records"]):
+            raise ValueError(
+                "Four-state artifact count changed: %s." % name
+            )
+        if records_sha256(records) != artifact["records_sha256"]:
+            raise ValueError(
+                "Four-state record hash changed: %s." % name
+            )
+        loaded[name] = records
+
+    expected = {
+        "training",
+        "test_warm_warm",
+        "test_cold_warm",
+        "test_warm_cold",
+        "test_cold_cold",
+    }
+    if set(loaded) != expected:
+        raise ValueError(
+            "Four-state artifact set is incomplete: %s." %
+            sorted(loaded)
+        )
+    states = {
+        state: loaded["test_%s" % state]
+        for state in (
+            "warm_warm", "cold_warm", "warm_cold", "cold_cold"
+        )
+    }
+    return loaded["training"], states, manifest["metadata"]

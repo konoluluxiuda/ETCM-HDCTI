@@ -64,8 +64,20 @@ negative ratio: 1:1
 | SymMap2.0 | `3618f0e32c8e6e7aabed7a9b65eb6c03a99e863e87da1aaaba0f97272bc87f6c` |
 | ETCM2.0-mention10 | `927b35baed2913dee55808bbb3f69443f22bb2c8f076ca829eccd20735c9b41f` |
 
-当前哈希由代码和冻结源 manifest 确定，还未写成新的磁盘 manifest。模型接入前
-需要增加显式 artifact writer，并在重复运行时校验这些哈希。
+四库 artifact 已实际生成到各自 source manifest 目录下：
+
+```text
+four_state_seed_2026_c0_p0/
+  manifest.json
+  training.tsv
+  test_warm_warm.tsv
+  test_cold_warm.tsv
+  test_warm_cold.tsv
+  test_cold_cold.tsv
+```
+
+这些数据文件位于被 Git 忽略的 `dataset/` 下，不上传远端仓库；生成工具、加载
+校验和预期哈希进入版本控制。
 
 ## 5. 验证
 
@@ -73,6 +85,7 @@ negative ratio: 1:1
 
 ```text
 tests/test_support_complete_four_state.py
+tools/prepare_four_state_support_unit.py
 ```
 
 已验证：
@@ -84,15 +97,16 @@ tests/test_support_complete_four_state.py
 - 正负数量相同；
 - 未将已知正例采为负例；
 - 相同 seed 输出完全一致；
+- 已有 manifest 会逐文件校验并直接复用；
+- 任一 TSV 被篡改后 loader 会拒绝加载；
 - 非法 holdout ratio 会被拒绝。
 
-相关 support-complete 与 Strict 回归测试共 37 项通过。
+相关 support-complete 与 Strict 回归测试共 39 项通过。
 
 ## 6. 下一步
 
-1. 将共享单元写成不可变 manifest/artifact，并增加加载时哈希校验；
-2. 为共享单元构建同样四状态完备的 inner-validation；
-3. 实现单 checkpoint 的支持状态解耦评分：
+1. 为共享单元构建同样四状态完备的 inner-validation；
+2. 实现单 checkpoint 的支持状态解耦评分：
 
 ```text
 warm-warm: base + Hctx-P
@@ -101,6 +115,6 @@ warm-cold: base
 cold-cold: isolated Hctx-Dctx
 ```
 
-4. 所有路由只读取当前训练单元的 C-P degree 与 H-C/P-D 可用性；
-5. 首个模型 Gate 仍只用 TCM-Suite `C0-P0` inner-validation，不先读取四库
+3. 所有路由只读取当前训练单元的 C-P degree 与 H-C/P-D 可用性；
+4. 首个模型 Gate 仍只用 TCM-Suite `C0-P0` inner-validation，不先读取四库
    outer test。

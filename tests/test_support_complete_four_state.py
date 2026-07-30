@@ -2,8 +2,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tools.prepare_four_state_support_unit import (
+    prepare_four_state_artifact,
+)
 from tools.prepare_support_complete_splits import prepare_dataset_manifest
-from util.support_complete_split import build_four_state_support_unit
+from util.support_complete_split import (
+    build_four_state_support_unit,
+    load_four_state_support_artifact,
+)
 
 
 class SupportCompleteFourStateTest(unittest.TestCase):
@@ -129,6 +135,62 @@ class SupportCompleteFourStateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "warm_holdout_ratio"):
             build_four_state_support_unit(
                 manifest_path, 0, 0, warm_holdout_ratio=0.0, seed=29
+            )
+
+    def test_artifact_is_reused_and_verified(self):
+        manifest_path, _ = self.make_manifest()
+        output_dir = self.root / "four_state"
+        first = prepare_four_state_artifact(
+            manifest_path,
+            output_dir,
+            compound_group=0,
+            protein_group=0,
+            warm_holdout_ratio=0.2,
+            seed=29,
+        )
+        manifest_bytes = (output_dir / "manifest.json").read_bytes()
+        second = prepare_four_state_artifact(
+            manifest_path,
+            output_dir,
+            compound_group=0,
+            protein_group=0,
+            warm_holdout_ratio=0.2,
+            seed=29,
+        )
+        training, states, metadata = load_four_state_support_artifact(
+            output_dir / "manifest.json"
+        )
+
+        self.assertEqual(first, second)
+        self.assertEqual(
+            manifest_bytes,
+            (output_dir / "manifest.json").read_bytes(),
+        )
+        self.assertEqual(
+            metadata["assignments_sha256"],
+            first["metadata"]["assignments_sha256"],
+        )
+        self.assertTrue(training)
+        self.assertEqual(set(states), set(first["metadata"]["states"]))
+
+    def test_artifact_loader_rejects_tampering(self):
+        manifest_path, _ = self.make_manifest()
+        output_dir = self.root / "four_state"
+        prepare_four_state_artifact(
+            manifest_path,
+            output_dir,
+            compound_group=0,
+            protein_group=0,
+            warm_holdout_ratio=0.2,
+            seed=29,
+        )
+        with (output_dir / "test_cold_cold.tsv").open(
+                "a", encoding="utf-8") as handle:
+            handle.write("c0\tp0\t0\n")
+
+        with self.assertRaisesRegex(ValueError, "artifact changed"):
+            load_four_state_support_artifact(
+                output_dir / "manifest.json"
             )
 
 

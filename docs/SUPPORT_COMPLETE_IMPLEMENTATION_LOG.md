@@ -276,6 +276,10 @@ warm-warm、cold-warm、warm-cold 和 cold-cold 四个互斥测试集合。四�
 | SymMap2.0 | 2,470 | 5,757 | 5,681 | 1,470 |
 | ETCM2.0-mention10 | 5,657 | 14,160 | 13,932 | 3,516 |
 
-现有 support-complete 与 Strict 回归测试共 37 项通过。下一步先把该派生单元
-冻结为带哈希的磁盘 artifact，并实现四状态一致的 inner-validation；在此之前
-不接模型、不运行四库 outer test。
+随后新增 `tools/prepare_four_state_support_unit.py` 和校验 loader。四库
+`training.tsv + 4 state test TSV + manifest.json` 已实际生成；重复运行会复用
+原 artifact，源 manifest 或任一 TSV 哈希变化都会拒绝加载。现有
+support-complete 与 Strict 回归测试共 39 项通过。
+
+下一步实现四状态一致的 inner-validation；在此之前不接模型、不运行四库
+outer test。
