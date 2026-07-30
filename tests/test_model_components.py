@@ -21,8 +21,10 @@ from util.model_components import (
     resolve_negative_sampling,
     resolve_pair_decoder,
     resolve_support_experts,
+    resolve_support_state_routing,
     support_conditioned_cold_gate,
     support_decoupled_base_gate,
+    support_state_pair_gates,
     target_conditioned_herb_contexts,
 )
 
@@ -125,6 +127,67 @@ class ModelComponentsTest(unittest.TestCase):
                 'support.experts.detach.cold.features': 'False',
             }))
 
+    def test_support_state_routing_defaults_off_and_requires_isolation(self):
+        self.assertEqual(
+            resolve_support_state_routing(DummyConf({})),
+            {
+                'enabled': False,
+                'mode': 'hard_four_state',
+                'training_mode': 'joint_ww',
+                'herb_protein_aux_weight': 1.0,
+                'cold_cold_aux_weight': 1.0,
+                'detach_cold_cold_features': True,
+            },
+        )
+        enabled = resolve_support_state_routing(DummyConf({
+            'support.state.routing': 'True',
+            'support.state.routing.cold_cold.aux.weight': '0.5',
+        }))
+        self.assertTrue(enabled['enabled'])
+        self.assertEqual(enabled['cold_cold_aux_weight'], 0.5)
+        isolated = resolve_support_state_routing(DummyConf({
+            'support.state.routing': 'True',
+            'support.state.routing.training': 'isolated_heads',
+            'support.state.routing.herb_protein.aux.weight': '0.25',
+        }))
+        self.assertEqual(isolated['training_mode'], 'isolated_heads')
+        self.assertEqual(isolated['herb_protein_aux_weight'], 0.25)
+        with self.assertRaisesRegex(ValueError, 'detached cold-cold'):
+            resolve_support_state_routing(DummyConf({
+                'support.state.routing': 'True',
+                'support.state.routing.detach.cold_cold.features': 'False',
+            }))
+
+    def test_support_state_pair_gates_cover_four_states(self):
+        gates = support_state_pair_gates(
+            compound_support_degrees=[2, 0, 3, 0],
+            protein_support_degrees=[4, 5, 0, 0],
+            compound_context_available=[1, 1, 1, 1],
+            protein_context_available=[1, 1, 1, 1],
+        )
+        np.testing.assert_array_equal(gates['state'], [0, 1, 2, 3])
+        np.testing.assert_array_equal(gates['base'], [1, 0, 1, 0])
+        np.testing.assert_array_equal(
+            gates['herb_protein'], [1, 1, 0, 0]
+        )
+        np.testing.assert_array_equal(
+            gates['herb_disease'], [0, 0, 0, 1]
+        )
+
+    def test_support_state_pair_gates_require_side_context(self):
+        gates = support_state_pair_gates(
+            compound_support_degrees=[0, 0],
+            protein_support_degrees=[2, 0],
+            compound_context_available=[0, 1],
+            protein_context_available=[1, 0],
+        )
+        np.testing.assert_array_equal(
+            gates['herb_protein'], [0, 0]
+        )
+        np.testing.assert_array_equal(
+            gates['herb_disease'], [0, 0]
+        )
+
     def test_pair_scores_route_warm_and_cold_experts_without_overlap(self):
         compounds = np.asarray(
             [[1.0, 2.0], [3.0, 4.0]], dtype=np.float32
@@ -199,6 +262,40 @@ class ModelComponentsTest(unittest.TestCase):
         )
         expected = np.sum(herb_contexts[0] * proteins[0] * herb_weight)
         np.testing.assert_allclose(score, [expected])
+
+    def test_pair_scores_apply_independent_herb_disease_scale(self):
+        compounds = np.ones((2, 2), dtype=np.float32)
+        proteins = np.ones((2, 2), dtype=np.float32)
+        herb_contexts = np.asarray(
+            [[1.0, 2.0], [3.0, 4.0]], dtype=np.float32
+        )
+        disease_contexts = np.asarray(
+            [[0.5, 1.5], [2.0, 1.0]], dtype=np.float32
+        )
+        zero = np.zeros(2, dtype=np.float32)
+        herb_disease = np.asarray([2.0, -1.0], dtype=np.float32)
+        scores = context_interaction_pair_scores(
+            compounds,
+            proteins,
+            herb_contexts,
+            disease_contexts,
+            [0, 1],
+            [0, 1],
+            zero,
+            zero,
+            herb_disease,
+            enabled_terms={
+                'compound_disease': False,
+                'herb_protein': False,
+                'herb_disease': True,
+            },
+            base_score_scale=[0.0, 0.0],
+            herb_disease_scale=[0.0, 1.0],
+        )
+        expected_second = np.sum(
+            herb_contexts[1] * disease_contexts[1] * herb_disease
+        )
+        np.testing.assert_allclose(scores, [0.0, expected_second])
 
     def test_counterfactual_context_defaults_off_and_validates_pilot_settings(self):
         self.assertEqual(resolve_counterfactual_context(DummyConf({})), {

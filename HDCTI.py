@@ -37,8 +37,10 @@ from util.model_components import (
     resolve_pair_decoder,
     resolve_support_experts,
     resolve_support_router,
+    resolve_support_state_routing,
     support_conditioned_cold_gate,
     support_decoupled_base_gate,
+    support_state_pair_gates,
     target_conditioned_herb_contexts,
 )
 from util.support_router import (
@@ -294,6 +296,9 @@ class HDCTI(herbRecommender):
         self.context_mask_training = resolve_context_mask_training(self.config)
         self.support_router = resolve_support_router(self.config)
         self.support_experts = resolve_support_experts(self.config)
+        self.support_state_routing = resolve_support_state_routing(
+            self.config
+        )
         self.hyperedge_attention = resolve_hyperedge_attention(self.config)
         self.global_token_attention = resolve_global_token_attention(self.config)
         self.inductive_context = resolve_inductive_context(self.config)
@@ -312,6 +317,8 @@ class HDCTI(herbRecommender):
                 incompatible_components.append('support.router')
             if self.support_experts['enabled']:
                 incompatible_components.append('support.experts')
+            if self.support_state_routing['enabled']:
+                incompatible_components.append('support.state.routing')
             if self.hyperedge_attention['enabled']:
                 incompatible_components.append('hyperedge.attention')
             if self.global_token_attention['enabled']:
@@ -432,6 +439,55 @@ class HDCTI(herbRecommender):
                 raise ValueError(
                     'Support-conditioned experts require attention.max.nodes=0.'
                 )
+        if self.support_state_routing['enabled']:
+            if getattr(self.data, 'protocol', 'legacy') != 'strict':
+                raise ValueError(
+                    'Support-state routing requires experiment.protocol=strict.'
+                )
+            if self.validationAggregation != 'macro_support_states':
+                raise ValueError(
+                    'Support-state routing requires the shared four-state '
+                    'validation protocol.'
+                )
+            if self.herb_context_attention['mode'] != 'static':
+                raise ValueError(
+                    'Support-state routing requires static side contexts.'
+                )
+            if self.context_terms != {
+                    'compound_disease': False,
+                    'herb_protein': True,
+                    'herb_disease': True}:
+                raise ValueError(
+                    'Support-state routing requires Hctx-P and Hctx-Dctx only.'
+                )
+            incompatible_components = []
+            if self.support_router['enabled']:
+                incompatible_components.append('support.router')
+            if self.support_experts['enabled']:
+                incompatible_components.append('support.experts')
+            if self.inductive_context['enabled']:
+                incompatible_components.append('inductive.context')
+            if self.counterfactual_context['enabled']:
+                incompatible_components.append('counterfactual.context')
+            if self.context_mask_training['enabled']:
+                incompatible_components.append('context.mask.training')
+            if self.hyperedge_attention['enabled']:
+                incompatible_components.append('hyperedge.attention')
+            if self.global_token_attention['enabled']:
+                incompatible_components.append('global.token.attention')
+            if self.pair_decoder['type'] != 'dot':
+                incompatible_components.append('pair.decoder')
+            if (
+                not self.config.contains('attention.max.nodes')
+                or int(self.config['attention.max.nodes']) != 0
+            ):
+                incompatible_components.append('attention.max.nodes')
+            if incompatible_components:
+                raise ValueError(
+                    'The initial support-state routing Gate requires an '
+                    'isolated strict configuration; incompatible settings: '
+                    '%s.' % ', '.join(incompatible_components)
+                )
         if self.inductive_context['enabled']:
             if getattr(self.data, 'protocol', 'legacy') != 'strict':
                 raise ValueError(
@@ -510,14 +566,69 @@ class HDCTI(herbRecommender):
         self.compound_cp_support_degrees = np.zeros(
             self.num_compounds, dtype=np.float32
         )
-        for compound_id, _, label in self.data.cpassociation:
+        self.protein_cp_support_degrees = np.zeros(
+            self.num_proteins, dtype=np.float32
+        )
+        for compound_id, protein_id, label in self.data.cpassociation:
             if float(label) > 0:
                 self.compound_cp_support_degrees[
                     self.data.compound[str(compound_id)]
                 ] += 1.0
+                self.protein_cp_support_degrees[
+                    self.data.protein[str(protein_id)]
+                ] += 1.0
         self.compound_context_available = (
             np.sum(self.compound_herb_mask, axis=1) > 0
         ).astype(np.float32)
+        self.protein_context_available = (
+            np.asarray(pd.sum(axis=1)).reshape(-1) > 0
+        ).astype(np.float32)
+        if self.support_state_routing['enabled']:
+            expected_state_codes = {
+                'warm_warm': 0,
+                'cold_warm': 1,
+                'warm_cold': 2,
+                'cold_cold': 3,
+            }
+            validation_state_counts = {}
+            for state_name, expected_code in expected_state_codes.items():
+                records = self.validationDataByState.get(state_name, [])
+                if not records:
+                    raise ValueError(
+                        'Support-state routing is missing %s validation '
+                        'records.' % state_name
+                    )
+                compound_indices = np.asarray([
+                    self.data.compound[str(record[0])]
+                    for record in records
+                ], dtype=np.int64)
+                protein_indices = np.asarray([
+                    self.data.protein[str(record[1])]
+                    for record in records
+                ], dtype=np.int64)
+                gates = support_state_pair_gates(
+                    self.compound_cp_support_degrees[compound_indices],
+                    self.protein_cp_support_degrees[protein_indices],
+                    self.compound_context_available[compound_indices],
+                    self.protein_context_available[protein_indices],
+                )
+                if np.any(gates['state'] != expected_code):
+                    raise ValueError(
+                        'Frozen %s records disagree with current training '
+                        'C-P support degrees.' % state_name
+                    )
+                validation_state_counts[state_name] = len(records)
+            print(
+                'Support-state routing: WW=base+Hctx-P, CW=Hctx-P, '
+                'WC=base, CC=Hctx-Dctx; validation=%s.' %
+                ', '.join(
+                    '%s:%d' % (name, validation_state_counts[name])
+                    for name in (
+                        'warm_warm', 'cold_warm',
+                        'warm_cold', 'cold_cold',
+                    )
+                )
+            )
         if (
             self.herb_context_attention['mode'] in TARGET_HERB_ATTENTION_MODES
             and not self.context_terms['herb_protein']
@@ -1360,6 +1471,56 @@ class HDCTI(herbRecommender):
             self.final_scoring_compound_context, self.u_idx
         )
         self.v_context_embedding = tf.nn.embedding_lookup(self.final_protein_context, self.v_idx)
+        self.support_state_pair_gates = None
+        if self.support_state_routing['enabled']:
+            pair_compound_support = tf.gather(
+                tf.constant(
+                    self.compound_cp_support_degrees, dtype=tf.float32
+                ),
+                self.u_idx,
+            )
+            pair_protein_support = tf.gather(
+                tf.constant(
+                    self.protein_cp_support_degrees, dtype=tf.float32
+                ),
+                self.v_idx,
+            )
+            pair_compound_context = tf.gather(
+                tf.constant(
+                    self.compound_context_available, dtype=tf.float32
+                ),
+                self.u_idx,
+            )
+            pair_protein_context = tf.gather(
+                tf.constant(
+                    self.protein_context_available, dtype=tf.float32
+                ),
+                self.v_idx,
+            )
+            compound_warm = pair_compound_support > 0
+            protein_warm = pair_protein_support > 0
+            self.support_state_pair_gates = {
+                'base': tf.cast(compound_warm, tf.float32),
+                'herb_protein': tf.cast(
+                    tf.logical_and(
+                        protein_warm, pair_compound_context > 0
+                    ),
+                    tf.float32,
+                ),
+                'herb_disease': tf.cast(
+                    tf.logical_and(
+                        tf.logical_and(
+                            tf.logical_not(compound_warm),
+                            tf.logical_not(protein_warm),
+                        ),
+                        tf.logical_and(
+                            pair_compound_context > 0,
+                            pair_protein_context > 0,
+                        ),
+                    ),
+                    tf.float32,
+                ),
+            }
         self.inductive_base_gate = None
         if self.inductive_context['suppress_base_zero_support']:
             pair_support_degrees = tf.gather(
@@ -1541,6 +1702,8 @@ class HDCTI(herbRecommender):
         logits = self.buildBasePairLogits(
             compound_embedding, protein_embedding
         )
+        if self.support_state_routing['enabled']:
+            logits *= self.support_state_pair_gates['base']
         if self.support_experts['enabled']:
             logits *= 1.0 - self.support_expert_cold_gate
         if self.inductive_context['suppress_base_zero_support']:
@@ -1557,6 +1720,10 @@ class HDCTI(herbRecommender):
             )
             if self.support_router['enabled']:
                 herb_protein_logits *= self.support_context_gate
+            if self.support_state_routing['enabled']:
+                herb_protein_logits *= self.support_state_pair_gates[
+                    'herb_protein'
+                ]
             if self.support_experts['enabled']:
                 herb_protein_logits *= 1.0 - self.support_expert_cold_gate
             logits += herb_protein_logits
@@ -1578,10 +1745,15 @@ class HDCTI(herbRecommender):
                     * self.weights['context_target_herb_residual'], axis=1
                 )
         if self.context_terms['herb_disease']:
-            logits += tf.reduce_sum(
+            herb_disease_logits = tf.reduce_sum(
                 self.u_context_embedding * self.v_context_embedding
                 * self.weights['context_herb_disease'], axis=1
             )
+            if self.support_state_routing['enabled']:
+                herb_disease_logits *= self.support_state_pair_gates[
+                    'herb_disease'
+                ]
+            logits += herb_disease_logits
         return logits
 
     def supportContextGateValues(self, state, compound_indices):
@@ -1615,6 +1787,71 @@ class HDCTI(herbRecommender):
             self.compound_cp_support_degrees[compound_indices],
             self.compound_inductive_context_available[compound_indices],
         )
+
+    def supportStatePairGateValues(
+            self, compound_indices, protein_indices):
+        if not self.support_state_routing['enabled']:
+            return None
+        compound_indices = np.asarray(compound_indices, dtype=np.int64)
+        protein_indices = np.asarray(protein_indices, dtype=np.int64)
+        return support_state_pair_gates(
+            self.compound_cp_support_degrees[compound_indices],
+            self.protein_cp_support_degrees[protein_indices],
+            self.compound_context_available[compound_indices],
+            self.protein_context_available[protein_indices],
+        )
+
+    def buildSupportStateAuxiliaryLosses(self):
+        if not self.support_state_routing['enabled']:
+            zero = tf.constant(0.0, dtype=tf.float32)
+            return zero, zero
+        herb_protein_loss = tf.constant(0.0, dtype=tf.float32)
+        if (
+            self.support_state_routing['training_mode']
+            == 'isolated_heads'
+        ):
+            herb_protein_features = tf.stop_gradient(
+                self.u_context_embedding * self.v_embedding
+            )
+            herb_protein_logits = tf.reduce_sum(
+                herb_protein_features
+                * self.weights['context_herb_protein'],
+                axis=1,
+            )
+            herb_protein_loss = (
+                self.support_state_routing['herb_protein_aux_weight']
+                * tf.reduce_sum(
+                    tf.nn.sigmoid_cross_entropy_with_logits(
+                        labels=self.neg_disease_embedding,
+                        logits=herb_protein_logits,
+                    )
+                )
+            )
+        cold_cold_features = (
+            self.u_context_embedding * self.v_context_embedding
+        )
+        if self.support_state_routing['detach_cold_cold_features']:
+            cold_cold_features = tf.stop_gradient(cold_cold_features)
+        auxiliary_logits = tf.reduce_sum(
+            cold_cold_features * self.weights['context_herb_disease'],
+            axis=1,
+        )
+        raw_loss = tf.reduce_sum(
+            tf.nn.sigmoid_cross_entropy_with_logits(
+                labels=self.neg_disease_embedding,
+                logits=auxiliary_logits,
+            )
+        )
+        cold_cold_loss = (
+            self.support_state_routing['cold_cold_aux_weight'] * raw_loss
+        )
+        return herb_protein_loss, cold_cold_loss
+
+    def buildSupportStateAuxiliaryLoss(self):
+        herb_protein_loss, cold_cold_loss = (
+            self.buildSupportStateAuxiliaryLosses()
+        )
+        return herb_protein_loss + cold_cold_loss
 
     def buildContextMaskedTrainingLoss(self):
         if not self.context_mask_training['enabled']:
@@ -1834,6 +2071,9 @@ class HDCTI(herbRecommender):
                 decoder_weights=weights,
             )
         else:
+            support_state_gates = self.supportStatePairGateValues(
+                compound_indices, protein_indices
+            )
             target_compound_contexts, _ = self.targetConditionedHerbContexts(
                 state, compound_indices, protein_indices
             )
@@ -1864,22 +2104,38 @@ class HDCTI(herbRecommender):
                 residual_compound_contexts=residual_compound_contexts,
                 target_residual_weight=weights.get('context_target_herb_residual'),
                 herb_protein_scale=(
-                    1.0 - self.supportExpertColdGateValues(compound_indices)
-                    if self.support_experts['enabled']
-                    else self.supportContextGateValues(
-                        state, compound_indices
+                    support_state_gates['herb_protein']
+                    if support_state_gates is not None
+                    else (
+                        1.0 - self.supportExpertColdGateValues(
+                            compound_indices
+                        )
+                        if self.support_experts['enabled']
+                        else self.supportContextGateValues(
+                            state, compound_indices
+                        )
                     )
                 ),
                 base_score_scale=(
-                    1.0 - self.supportExpertColdGateValues(compound_indices)
-                    if self.support_experts['enabled']
-                    else self.inductiveBaseGateValues(compound_indices)
+                    support_state_gates['base']
+                    if support_state_gates is not None
+                    else (
+                        1.0 - self.supportExpertColdGateValues(
+                            compound_indices
+                        )
+                        if self.support_experts['enabled']
+                        else self.inductiveBaseGateValues(compound_indices)
+                    )
                 ),
                 cold_herb_protein_weight=weights.get(
                     'context_herb_protein_cold'
                 ),
                 cold_herb_protein_scale=self.supportExpertColdGateValues(
                     compound_indices
+                ),
+                herb_disease_scale=(
+                    support_state_gates['herb_disease']
+                    if support_state_gates is not None else None
                 ),
             )
         scores = 1.0 / (1.0 + np.exp(-np.clip(logits, -50, 50)))
@@ -1901,7 +2157,14 @@ class HDCTI(herbRecommender):
                 return '%dm%02ds' % (minutes, secs)
             return '%ds' % secs
 
-        logits = self.buildPairLogits()
+        if (
+            self.support_state_routing['enabled']
+            and self.support_state_routing['training_mode']
+            == 'isolated_heads'
+        ):
+            logits = self.buildBasePairLogits()
+        else:
+            logits = self.buildPairLogits()
         bce_loss = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(
             labels=self.neg_disease_embedding,
             logits=logits
@@ -1912,7 +2175,21 @@ class HDCTI(herbRecommender):
             self.buildCounterfactualContextLoss()
         )
         context_mask_loss = self.buildContextMaskedTrainingLoss()
-        loss = bce_loss + reg_loss + counterfactual_loss + context_mask_loss
+        (
+            support_state_hp_auxiliary_loss,
+            support_state_cc_auxiliary_loss,
+        ) = self.buildSupportStateAuxiliaryLosses()
+        support_state_auxiliary_loss = (
+            support_state_hp_auxiliary_loss
+            + support_state_cc_auxiliary_loss
+        )
+        loss = (
+            bce_loss
+            + reg_loss
+            + counterfactual_loss
+            + context_mask_loss
+            + support_state_auxiliary_loss
+        )
 
         optimizer = tf.train.AdamOptimizer(self.lRate)
         train = optimizer.minimize(loss)
@@ -1972,7 +2249,11 @@ class HDCTI(herbRecommender):
                     feed_dict[self.counterfactual_eligible_mask] = (
                         self.counterfactual_donor_eligible[compound_batch]
                     )
-                _, l, cf_l, cf_active, cf_margin, cmit_l = self.sess.run(
+                (
+                    _, l, cf_l, cf_active, cf_margin, cmit_l,
+                    support_state_hp_aux_l,
+                    support_state_cc_aux_l,
+                ) = self.sess.run(
                     [
                         train,
                         loss,
@@ -1980,6 +2261,8 @@ class HDCTI(herbRecommender):
                         counterfactual_active,
                         counterfactual_margin,
                         context_mask_loss,
+                        support_state_hp_auxiliary_loss,
+                        support_state_cc_auxiliary_loss,
                     ],
                     feed_dict=feed_dict,
                 )
@@ -2005,9 +2288,18 @@ class HDCTI(herbRecommender):
                 cmit_suffix = ''
                 if self.context_mask_training['enabled']:
                     cmit_suffix = ' cmit_loss: %s' % cmit_l
+                support_state_suffix = ''
+                if self.support_state_routing['enabled']:
+                    support_state_suffix = (
+                        ' support_state_hp_aux_loss: %s'
+                        ' support_state_cc_aux_loss: %s' % (
+                            support_state_hp_aux_l,
+                            support_state_cc_aux_l,
+                        )
+                    )
                 print(
                     'training: %d/%d batch %d/%d loss: %s batch_time: %s '
-                    'elapsed: %s eta: %s%s%s' % (
+                    'elapsed: %s eta: %s%s%s%s' % (
                         epoch + 1,
                         self.maxEpoch,
                         n + 1,
@@ -2018,6 +2310,7 @@ class HDCTI(herbRecommender):
                         format_duration(eta),
                         chcr_suffix,
                         cmit_suffix,
+                        support_state_suffix,
                     )
                 )
             print('epoch %d/%d finished in %s' %
@@ -2339,6 +2632,84 @@ class HDCTI(herbRecommender):
                 )
                 handle.write('\n')
             print('SCHE metadata: %s' % experts_path)
+        self.support_state_routing_summary = None
+        if self.support_state_routing['enabled']:
+            training_compounds = np.asarray([
+                self.data.compound[str(record[0])]
+                for record in self.data.trainingData
+            ], dtype=np.int64)
+            training_proteins = np.asarray([
+                self.data.protein[str(record[1])]
+                for record in self.data.trainingData
+            ], dtype=np.int64)
+            training_gates = self.supportStatePairGateValues(
+                training_compounds, training_proteins
+            )
+            state_names = ('warm_warm', 'cold_warm', 'warm_cold', 'cold_cold')
+            training_state_counts = {
+                name: int(np.sum(training_gates['state'] == code))
+                for code, name in enumerate(state_names)
+            }
+            self.support_state_routing_summary = {
+                'mode': self.support_state_routing['mode'],
+                'training_mode': self.support_state_routing[
+                    'training_mode'
+                ],
+                'routes': {
+                    'warm_warm': ['base', 'herb_protein'],
+                    'cold_warm': ['herb_protein'],
+                    'warm_cold': ['base'],
+                    'cold_cold': ['herb_disease'],
+                },
+                'cold_cold_aux_weight': self.support_state_routing[
+                    'cold_cold_aux_weight'
+                ],
+                'herb_protein_aux_weight': self.support_state_routing[
+                    'herb_protein_aux_weight'
+                ],
+                'detach_cold_cold_features': self.support_state_routing[
+                    'detach_cold_cold_features'
+                ],
+                'training_state_counts': training_state_counts,
+                'validation_state_counts': {
+                    name: len(self.validationDataByState.get(name, []))
+                    for name in state_names
+                },
+                'herb_protein_weight_mean_abs': float(np.mean(np.abs(
+                    self.weight['context_herb_protein']
+                ))),
+                'herb_disease_weight_mean_abs': float(np.mean(np.abs(
+                    self.weight['context_herb_disease']
+                ))),
+            }
+            print(
+                'Support-state routing learned weights: Hctx-P=%.6f, '
+                'Hctx-Dctx=%.6f; training states=%s.' % (
+                    self.support_state_routing_summary[
+                        'herb_protein_weight_mean_abs'
+                    ],
+                    self.support_state_routing_summary[
+                        'herb_disease_weight_mean_abs'
+                    ],
+                    ', '.join(
+                        '%s:%d' % (name, training_state_counts[name])
+                        for name in state_names
+                    ),
+                )
+            )
+            support_state_path = os.path.join(
+                model_dir, 'support_state_routing.json'
+            )
+            with open(
+                    support_state_path, 'w', encoding='utf-8') as handle:
+                json.dump(
+                    self.support_state_routing_summary,
+                    handle,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                handle.write('\n')
+            print('Support-state routing metadata: %s' % support_state_path)
         if self.use_context_interaction:
             context_weight_values = {
                 'compound_disease': np.mean(np.abs(self.weight['context_compound_disease'])),
@@ -2484,6 +2855,9 @@ class HDCTI(herbRecommender):
             if self.herb_context_attention['mode'] == 'target_residual_attention'
             else None
         )
+        support_state_gates = self.supportStatePairGateValues(
+            compound_indices, protein_indices
+        )
         return context_interaction_pair_scores(
             self.u,
             self.i,
@@ -2501,22 +2875,38 @@ class HDCTI(herbRecommender):
             residual_compound_contexts=residual_compound_contexts,
             target_residual_weight=self.weight.get('context_target_herb_residual'),
             herb_protein_scale=(
-                1.0 - self.supportExpertColdGateValues(compound_indices)
-                if self.support_experts['enabled']
-                else self.supportContextGateValues(
-                    state, compound_indices
+                support_state_gates['herb_protein']
+                if support_state_gates is not None
+                else (
+                    1.0 - self.supportExpertColdGateValues(
+                        compound_indices
+                    )
+                    if self.support_experts['enabled']
+                    else self.supportContextGateValues(
+                        state, compound_indices
+                    )
                 )
             ),
             base_score_scale=(
-                1.0 - self.supportExpertColdGateValues(compound_indices)
-                if self.support_experts['enabled']
-                else self.inductiveBaseGateValues(compound_indices)
+                support_state_gates['base']
+                if support_state_gates is not None
+                else (
+                    1.0 - self.supportExpertColdGateValues(
+                        compound_indices
+                    )
+                    if self.support_experts['enabled']
+                    else self.inductiveBaseGateValues(compound_indices)
+                )
             ),
             cold_herb_protein_weight=self.weight.get(
                 'context_herb_protein_cold'
             ),
             cold_herb_protein_scale=self.supportExpertColdGateValues(
                 compound_indices
+            ),
+            herb_disease_scale=(
+                support_state_gates['herb_disease']
+                if support_state_gates is not None else None
             ),
         )
 
@@ -2526,6 +2916,7 @@ class HDCTI(herbRecommender):
         pairwise_prediction_required = (
             decoder_type == 'mlp'
             or self.herb_context_attention['mode'] in TARGET_HERB_ATTENTION_MODES
+            or self.support_state_routing['enabled']
         )
         if pairwise_prediction_required:
             scores = np.empty((self.num_compounds, self.num_proteins), dtype=np.float32)

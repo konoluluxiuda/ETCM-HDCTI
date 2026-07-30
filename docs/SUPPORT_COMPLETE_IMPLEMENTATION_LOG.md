@@ -291,6 +291,47 @@ evaluation.setup=-four-state-unit
 configs/HDCTI_tcmsuite_four_state_no_context_unit_smoke.conf
 ```
 
+## 四状态支持感知统一路由
+
+在共享四状态验证单元贯通后，新增单 checkpoint 的确定性支持状态路由：
+
+```text
+WW -> base + Hctx-P
+CW -> Hctx-P
+WC -> base
+CC -> Hctx-Dctx
+```
+
+训练 pair 全部为 WW，因此 `Hctx-Dctx` 通过独立 BCE 学习，但其 H-C/P-D
+上下文特征使用 `stop_gradient`，辅助损失只更新冷冷交互头。实现、配对
+配置、预注册 Gate 和冒烟结果见：
+
+```text
+docs/SUPPORT_STATE_ROUTING.md
+tests/test_support_state_routing.py
+configs/HDCTI_tcmsuite_four_state_no_context_unit_pilot.conf
+configs/HDCTI_tcmsuite_four_state_support_routing_unit_pilot.conf
+```
+
+联合训练 V1 虽将 Macro-AUPR 从 `0.613813` 提高到 `0.701134`，但 WC
+下降 `0.060193`，未通过预注册 Gate。随后采用隔离头 V2：base 使用原
+BCE，Hctx-P 与 Hctx-Dctx 均在停止梯度的侧信息特征上独立训练。
+
+保存 checkpoint 的纯推理复核结果为：
+
+```text
+NoContext Macro-AUPR: 0.613813
+V2 Macro-AUPR:        0.710684
+Delta:               +0.096870
+WW/CW/WC/CC Delta:   +0.023521/+0.184979/+0.000000/+0.178981
+```
+
+V2 通过全部预注册条件。复核工具为：
+
+```text
+tools/evaluate_four_state_checkpoint.py
+```
+
 四状态入口加载同一份冻结训练图，并在该图内部重新生成 warm-warm、
 cold-warm、warm-cold、cold-cold 四个验证集合。早停逐状态计算 AUPR，并使用
 四状态等权宏平均选择 checkpoint，避免大状态凭记录数主导模型选择。

@@ -223,6 +223,136 @@ def resolve_support_experts(config):
     }
 
 
+def resolve_support_state_routing(config):
+    enabled = _config_bool(config, 'support.state.routing', False)
+    mode = (
+        str(config['support.state.routing.mode']).strip().lower()
+        if config.contains('support.state.routing.mode')
+        else 'hard_four_state'
+    )
+    training_mode = (
+        str(config['support.state.routing.training']).strip().lower()
+        if config.contains('support.state.routing.training')
+        else 'joint_ww'
+    )
+    herb_protein_auxiliary_weight = (
+        float(config['support.state.routing.herb_protein.aux.weight'])
+        if config.contains(
+            'support.state.routing.herb_protein.aux.weight'
+        )
+        else 1.0
+    )
+    auxiliary_weight = (
+        float(config['support.state.routing.cold_cold.aux.weight'])
+        if config.contains('support.state.routing.cold_cold.aux.weight')
+        else 1.0
+    )
+    detach_cold_cold_features = _config_bool(
+        config,
+        'support.state.routing.detach.cold_cold.features',
+        True,
+    )
+    if mode != 'hard_four_state':
+        raise ValueError(
+            'support.state.routing.mode must be hard_four_state.'
+        )
+    if training_mode not in {'joint_ww', 'isolated_heads'}:
+        raise ValueError(
+            'support.state.routing.training must be joint_ww or '
+            'isolated_heads.'
+        )
+    if herb_protein_auxiliary_weight < 0:
+        raise ValueError(
+            'support.state.routing.herb_protein.aux.weight cannot be '
+            'negative.'
+        )
+    if auxiliary_weight < 0:
+        raise ValueError(
+            'support.state.routing.cold_cold.aux.weight cannot be negative.'
+        )
+    if enabled and auxiliary_weight == 0:
+        raise ValueError(
+            'support.state.routing.cold_cold.aux.weight must be positive '
+            'when support.state.routing=True.'
+        )
+    if (
+        enabled
+        and training_mode == 'isolated_heads'
+        and herb_protein_auxiliary_weight == 0
+    ):
+        raise ValueError(
+            'support.state.routing.herb_protein.aux.weight must be '
+            'positive for isolated_heads training.'
+        )
+    if enabled and not detach_cold_cold_features:
+        raise ValueError(
+            'support.state.routing requires detached cold-cold features.'
+        )
+    return {
+        'enabled': enabled,
+        'mode': mode,
+        'training_mode': training_mode,
+        'herb_protein_aux_weight': herb_protein_auxiliary_weight,
+        'cold_cold_aux_weight': auxiliary_weight,
+        'detach_cold_cold_features': detach_cold_cold_features,
+    }
+
+
+def support_state_pair_gates(
+        compound_support_degrees,
+        protein_support_degrees,
+        compound_context_available,
+        protein_context_available):
+    compound_support_degrees = np.asarray(
+        compound_support_degrees, dtype=np.float64
+    )
+    protein_support_degrees = np.asarray(
+        protein_support_degrees, dtype=np.float64
+    )
+    compound_context_available = np.asarray(
+        compound_context_available, dtype=np.float64
+    )
+    protein_context_available = np.asarray(
+        protein_context_available, dtype=np.float64
+    )
+    expected_shape = compound_support_degrees.shape
+    for name, values in (
+        ('protein support degrees', protein_support_degrees),
+        ('compound context availability', compound_context_available),
+        ('protein context availability', protein_context_available),
+    ):
+        if values.shape != expected_shape:
+            raise ValueError(
+                '%s must match compound support degree shape.' % name
+            )
+
+    compound_warm = compound_support_degrees > 0
+    protein_warm = protein_support_degrees > 0
+    compound_context = compound_context_available > 0
+    protein_context = protein_context_available > 0
+    return {
+        'base': compound_warm.astype(np.float32),
+        'herb_protein': (
+            protein_warm & compound_context
+        ).astype(np.float32),
+        'herb_disease': (
+            ~compound_warm
+            & ~protein_warm
+            & compound_context
+            & protein_context
+        ).astype(np.float32),
+        'state': np.select(
+            [
+                compound_warm & protein_warm,
+                ~compound_warm & protein_warm,
+                compound_warm & ~protein_warm,
+            ],
+            [0, 1, 2],
+            default=3,
+        ).astype(np.int32),
+    }
+
+
 def resolve_inductive_context(config):
     enabled = _config_bool(config, 'inductive.context', False)
     suppress_base = _config_bool(
@@ -537,7 +667,8 @@ def context_interaction_pair_scores(
         herb_protein_scale=None,
         base_score_scale=None,
         cold_herb_protein_weight=None,
-        cold_herb_protein_scale=None):
+        cold_herb_protein_scale=None,
+        herb_disease_scale=None):
     compound_indices = np.asarray(compound_indices, dtype=np.int64)
     protein_indices = np.asarray(protein_indices, dtype=np.int64)
     if compound_indices.shape != protein_indices.shape:
@@ -621,7 +752,20 @@ def context_interaction_pair_scores(
                 cold_herb_protein_scores *= cold_herb_protein_scale
             scores += cold_herb_protein_scores
     if enabled_terms.get('herb_disease', False):
-        scores += np.sum(herb_contexts * disease_contexts * herb_disease_weight, axis=1)
+        herb_disease_scores = np.sum(
+            herb_contexts * disease_contexts * herb_disease_weight,
+            axis=1,
+        )
+        if herb_disease_scale is not None:
+            herb_disease_scale = np.asarray(
+                herb_disease_scale, dtype=np.float64
+            ).reshape(-1)
+            if herb_disease_scale.shape != herb_disease_scores.shape:
+                raise ValueError(
+                    'Herb-disease scales must match the number of pairs.'
+                )
+            herb_disease_scores *= herb_disease_scale
+        scores += herb_disease_scores
     return scores
 
 
