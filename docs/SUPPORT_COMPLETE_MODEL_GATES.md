@@ -135,3 +135,52 @@ base + context
    才设计由训练 C-P 支持度决定的统一推理路由。
 
 该分解不重新训练、不评价外层测试，也不修改现有 checkpoint。
+
+## 5. 纯推理分解结果
+
+审计入口：
+
+```text
+tools/audit_support_context_components.py
+```
+
+### Target-cold C-Dctx checkpoint
+
+| 分数 | AUC | AUPR | 正例 logit 均值 | 负例 logit 均值 |
+|---|---:|---:|---:|---:|
+| base-only | 0.540198 | 0.567753 | -0.138899 | -0.129676 |
+| context-only | 0.545309 | 0.579406 | 0.014140 | -0.277191 |
+| base + context | 0.581316 | 0.606159 | -0.124759 | -0.406867 |
+
+上下文项相对同 checkpoint 的 base-only AUPR 提高 `0.011653`，但该 checkpoint
+的 base-only 已远低于独立 NoContext checkpoint 的 `0.829882`。因此失败的
+主要原因是联合优化破坏了原有 base 表示，而不是 C-Dctx 分数简单反向。当前
+C-Dctx context-only 仍不足以替代 NoContext base，故不恢复该分支。
+
+### Double-cold Hctx-Dctx checkpoint
+
+| 分数 | AUC | AUPR | 正例 logit 均值 | 负例 logit 均值 |
+|---|---:|---:|---:|---:|
+| base-only | 0.436564 | 0.543369 | -0.001397 | -0.076059 |
+| context-only | 0.543712 | 0.566562 | 0.020934 | -0.075429 |
+| base + context | 0.475907 | 0.578218 | 0.019537 | -0.151488 |
+
+Hctx-Dctx context-only 相对冻结 NoContext AUPR 提高 `0.012903`，超过 `+0.005`
+门槛；它与 base 的 Pearson 相关仅为 `-0.037288`，提供了不同的排序信息。
+但其 AUC 仅为 `0.543712`，当前仍是初步可行分支，不能跳过四库确认。
+
+## 6. 下一候选结构
+
+下一候选改为**支持状态解耦上下文路由**，而不是三个上下文项全相加：
+
+| 训练 C-P 支持状态 | 推理分支 |
+|---|---|
+| warm compound / warm target | base + Hctx-P |
+| cold compound / warm target | Hctx-P，关闭 compound-ID base |
+| warm compound / cold target | base，不使用已失败的 C-Dctx |
+| cold compound / cold target | Hctx-Dctx context head |
+
+路由只能读取当前训练单元的 compound/target C-P degree 和 H-C/P-D 上下文
+可用性。Hctx-Dctx head 必须与主 base 梯度隔离，避免复现 C-Dctx checkpoint
+中的表示破坏；最终仍保存为一个 checkpoint。实现前先冻结公式和训练损失，
+不引入数据库特定阈值。

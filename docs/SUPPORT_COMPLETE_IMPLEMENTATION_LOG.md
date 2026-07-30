@@ -220,3 +220,37 @@ context weight mean abs:        2.233022
 C-Dctx 与 Hctx-Dctx checkpoint 做内层验证纯推理分解，比较 base-only、
 context-only 和相加分数。只有确认 Hctx-Dctx 的独立上下文分支在 Double-cold
 状态下仍具备有效排序能力，才实现同一 checkpoint 的训练支持度路由。
+
+## 2026-07-30：上下文 checkpoint 纯推理分解
+
+新增：
+
+```text
+tools/audit_support_context_components.py
+```
+
+脚本只恢复 checkpoint，并在 support-state inner-validation 上计算 base-only、
+context-only 与相加分数；训练步数为 0，外层测试关闭。
+
+主要结果：
+
+```text
+Target-cold C-Dctx:
+  base-only AUPR       0.567753
+  context-only AUPR    0.579406
+  total AUPR           0.606159
+  frozen NoContext     0.829882
+
+Double-cold Hctx-Dctx:
+  base-only AUPR       0.543369
+  context-only AUPR    0.566562
+  total AUPR           0.578218
+  frozen NoContext     0.553659
+```
+
+结论：
+
+1. C-Dctx 联合训练破坏了 base 表示，context-only 也不足以替代 NoContext；
+2. Hctx-Dctx context-only 相对 NoContext 提高 `0.012903`，具有独立路由价值；
+3. 下一实现采用训练支持度确定性路由，Target-cold 保留 base，Double-cold
+   使用梯度隔离的 Hctx-Dctx head，不再要求每个状态都新增一个上下文公式。
