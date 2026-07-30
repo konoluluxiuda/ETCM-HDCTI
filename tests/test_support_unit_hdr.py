@@ -123,10 +123,28 @@ class SupportUnitHDRTest(unittest.TestCase):
             runner.supportUnitMetadata["train_test_protein_overlap"], 0
         )
 
-    def test_support_unit_rejects_early_stopping(self):
-        with self.assertRaisesRegex(
-                ValueError, "early.stopping=False"):
-            HDR(self.config(**{"early.stopping": "True"}))
+    def test_target_support_unit_builds_state_matched_inner_validation(self):
+        runner = HDR(self.config(**{
+            "early.stopping": "True",
+            "validation.ratio": "0.3",
+            "validation.seed": "117",
+        }))
+
+        self.assertTrue(runner.supportValidationData)
+        train_compounds = {row[0] for row in runner.trainingData}
+        train_proteins = {row[1] for row in runner.trainingData}
+        validation_compounds = {
+            row[0] for row in runner.supportValidationData
+        }
+        validation_proteins = {
+            row[1] for row in runner.supportValidationData
+        }
+        self.assertTrue(validation_compounds <= train_compounds)
+        self.assertFalse(train_proteins & validation_proteins)
+        self.assertEqual(
+            runner.supportInnerValidationMetadata["mode"],
+            "target_cold",
+        )
 
     def test_support_unit_rejects_mixed_negative_sampling(self):
         with self.assertRaisesRegex(

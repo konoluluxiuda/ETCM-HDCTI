@@ -1,6 +1,10 @@
 from util.config import OptionConf
 from util.dataSplit import *
-from util.support_complete_split import load_support_complete_unit
+from util.support_complete_split import (
+    build_support_state_inner_validation,
+    load_support_complete_unit,
+    read_pairs,
+)
 from multiprocessing import Process, Manager
 from util.io import FileIO
 from time import strftime, localtime, time
@@ -26,6 +30,8 @@ class HDR(object):
         self.strictFolds = None
         self.strictManifest = None
         self.supportUnitMetadata = None
+        self.supportValidationData = []
+        self.supportInnerValidationMetadata = None
         self.ratingConfig = OptionConf(config['ratings.setup'])
         self.earlyStopping = resolve_early_stopping(config)
         self.negativeSampling = resolve_negative_sampling(config)
@@ -66,11 +72,6 @@ class HDR(object):
         print('Reading data and preprocessing...')
 
     def _loadSupportUnit(self):
-        if self.earlyStopping['enabled']:
-            raise ValueError(
-                'Support-unit experiments require early.stopping=False until '
-                'support-state inner validation is implemented.'
-            )
         if self.negativeSampling['strategy'] != 'random':
             raise ValueError(
                 'Support-unit manifests already freeze training negatives; '
@@ -150,6 +151,66 @@ class HDR(object):
                 self.supportUnitMetadata['test_negative_count'],
             )
         )
+        if self.earlyStopping['enabled']:
+            base_seed = (
+                int(self.config['random.seed'])
+                if self.config.contains('random.seed') else 2026
+            )
+            validation_seed = (
+                int(self.config['validation.seed'])
+                if self.config.contains('validation.seed')
+                else base_seed + 100000
+            )
+            all_positive_pairs = read_pairs(
+                manifest['sources']['C_P']['path']
+            )
+            (
+                self.trainingData,
+                self.supportValidationData,
+                self.supportInnerValidationMetadata,
+            ) = build_support_state_inner_validation(
+                self.trainingData,
+                all_positive_pairs,
+                mode,
+                self.earlyStopping['ratio'],
+                validation_seed,
+                self.supportUnitMetadata['unit_key'],
+            )
+            print(
+                'Support-state inner validation: strategy=%s seed=%d '
+                'train=%d (+%d/-%d) validation=%d (+%d/-%d) '
+                'heldout compounds=%d proteins=%d buffer positives=%d '
+                'hash=%s.' % (
+                    self.supportInnerValidationMetadata['strategy'],
+                    validation_seed,
+                    len(self.trainingData),
+                    self.supportInnerValidationMetadata[
+                        'inner_train_positive_count'
+                    ],
+                    self.supportInnerValidationMetadata[
+                        'inner_train_negative_count'
+                    ],
+                    len(self.supportValidationData),
+                    self.supportInnerValidationMetadata[
+                        'validation_positive_count'
+                    ],
+                    self.supportInnerValidationMetadata[
+                        'validation_negative_count'
+                    ],
+                    self.supportInnerValidationMetadata[
+                        'heldout_compounds'
+                    ],
+                    self.supportInnerValidationMetadata[
+                        'heldout_proteins'
+                    ],
+                    self.supportInnerValidationMetadata[
+                        'discarded_buffer_positive_count'
+                    ],
+                    self.supportInnerValidationMetadata[
+                        'assignments_sha256'
+                    ][:12],
+                )
+            )
 
 
     def execute(self):
@@ -162,7 +223,7 @@ class HDR(object):
                 "(self.config,self.trainingData,self.testData,'[1]')"
             )
             algorithm = eval(recommender)
-            algorithm.validationData = []
+            algorithm.validationData = self.supportValidationData
             seed = (
                 int(self.config['random.seed'])
                 if self.config.contains('random.seed') else 2026

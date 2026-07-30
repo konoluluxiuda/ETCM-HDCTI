@@ -84,7 +84,7 @@ support.protein.group=0
 安全约束：
 
 1. 只允许 `experiment.protocol=strict`；
-2. 当前要求 `early.stopping=False`，防止随机 pair 内层验证污染冷启动协议；
+2. `early.stopping=True` 时必须使用 support-state 内层验证，不能回退为随机 pair；
 3. 当前要求 `negative.strategy=random`，实际训练负例已由 manifest v2 固定；
 4. `datapath` 与 manifest 的 C-P 数据目录必须一致；
 5. support-unit 不经过旧 `fold_assignments.tsv` loader；
@@ -145,14 +145,52 @@ AUPR: 0.465397
 链路可运行，不能与五折基线比较，也不能用于判断 C-Dctx、Hctx-Dctx 或 SCCI
 是否有效。
 
+## 2026-07-30：支持状态一致的内层验证
+
+已实现：
+
+```text
+build_support_state_inner_validation(...)
+```
+
+其语义为：
+
+- Target-cold：整体留出内层 protein，validation compound 必须在内层训练中可见；
+- Double-cold：同时留出 compound 与 protein，验证只使用二者交叉块；
+- 所有涉及 double-cold 单侧留出端点的交叉正边作为隔离缓冲边；
+- 训练负例和验证负例均重新按 seed 构造，并排除完整 C-P 已知正边；
+- 输出训练、验证和完整分配哈希。
+
+四库 `target fold 0` 与 `double C0/P0` 在 `ratio=0.1`、
+`validation.seed=102026` 下均通过无训练审计。详情见：
+
+```text
+docs/SUPPORT_STATE_INNER_VALIDATION.md
+```
+
+新增可运行 pilot：
+
+```text
+configs/HDCTI_tcmsuite_target_cold_no_context_early_stop_unit_pilot.conf
+configs/HDCTI_tcmsuite_double_cold_no_context_early_stop_unit_pilot.conf
+```
+
+两个 CPU pilot 已真实完成：
+
+```text
+Target-cold: best validation AUPR 0.829882 at epoch 12; stopped at epoch 22
+Double-cold: best validation AUPR 0.553659 at epoch 12; stopped at epoch 22
+```
+
+二者均设置 `evaluation.outer.test=False`，外层测试未执行。这些结果只证明
+support-state 验证、早停、checkpoint 保存和恢复链路完整。
+
 ## 下一步
 
-两个 TCM-Suite NoContext 单元 smoke 已通过。后续顺序更新为：
+支持状态内层验证及两个 NoContext pilot 已完成。后续顺序更新为：
 
-1. 固定 support-state 内层验证策略；
-2. 恢复早停并得到可比较的 NoContext 单元基线；
-3. 实现 `C-Dctx`，只在 Target-cold Gate 1 中评价；
-4. 实现 `Hctx-Dctx`，只在 Double-cold Gate 1 中评价；
-5. 两个分支均通过后，再实现同一 checkpoint 的四状态训练与路由。
+1. 实现 `C-Dctx`，只在 Target-cold Gate 1 中与完全相同的 NoContext 单元配对；
+2. 实现 `Hctx-Dctx`，只在 Double-cold Gate 1 中配对；
+3. 两个分支均通过后，再实现同一 checkpoint 的四状态训练与路由。
 
 在 Gate 1 前不创建四库长训练配置，不把数据可行性或入口完成度表述为模型创新。

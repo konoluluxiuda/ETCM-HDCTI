@@ -168,6 +168,288 @@ def build_compound_matched_training_negatives(
     return negative_records
 
 
+def _ordered_entities(values, seed, role):
+    return sorted(
+        {str(value) for value in values},
+        key=lambda value: (stable_int(seed, role, value), value),
+    )
+
+
+def _heldout_entities(values, ratio, seed, role):
+    ordered = _ordered_entities(values, seed, role)
+    if len(ordered) < 2:
+        raise ValueError(
+            "Support-state inner validation requires at least two %s."
+            % role
+        )
+    heldout_count = int(round(len(ordered) * float(ratio)))
+    heldout_count = max(1, min(len(ordered) - 1, heldout_count))
+    return set(ordered[:heldout_count])
+
+
+def _protein_matched_validation_negatives(
+        validation_positive_edges, allowed_compounds, all_positive_pairs,
+        seed, unit_key):
+    positives_by_protein = {}
+    for compound_id, protein_id in validation_positive_edges:
+        positives_by_protein.setdefault(protein_id, set()).add(compound_id)
+    allowed_compounds = sorted(str(value) for value in allowed_compounds)
+    if not allowed_compounds:
+        raise ValueError("Validation negative generation has no compounds.")
+
+    negative_records = []
+    for protein_id in sorted(positives_by_protein):
+        required = len(positives_by_protein[protein_id])
+        available = sum(
+            (compound_id, protein_id) not in all_positive_pairs
+            for compound_id in allowed_compounds
+        )
+        if available < required:
+            raise ValueError(
+                "Protein %s has %d allowed unobserved compounds; %d are "
+                "required for %s."
+                % (protein_id, available, required, unit_key)
+            )
+        base_seed = stable_int(
+            seed, "validation_negative", "%s|%s" % (unit_key, protein_id)
+        )
+        start = base_seed % len(allowed_compounds)
+        stride = _coprime_stride(
+            len(allowed_compounds),
+            stable_int(
+                seed,
+                "validation_negative_stride",
+                "%s|%s" % (unit_key, protein_id),
+            ),
+        )
+        selected = 0
+        for offset in range(len(allowed_compounds)):
+            compound_id = allowed_compounds[
+                (start + offset * stride) % len(allowed_compounds)
+            ]
+            if (compound_id, protein_id) in all_positive_pairs:
+                continue
+            negative_records.append([compound_id, protein_id, 0.0])
+            selected += 1
+            if selected == required:
+                break
+    return negative_records
+
+
+def _block_validation_negatives(
+        required, heldout_compounds, heldout_proteins, all_positive_pairs,
+        seed, unit_key):
+    compound_ids = sorted(str(value) for value in heldout_compounds)
+    protein_ids = sorted(str(value) for value in heldout_proteins)
+    capacity = sum(
+        (compound_id, protein_id) not in all_positive_pairs
+        for compound_id in compound_ids
+        for protein_id in protein_ids
+    )
+    if capacity < required:
+        raise ValueError(
+            "Double-cold validation block has %d unobserved pairs; %d are "
+            "required for %s." % (capacity, required, unit_key)
+        )
+
+    candidates = [
+        (compound_id, protein_id)
+        for compound_id in compound_ids
+        for protein_id in protein_ids
+        if (compound_id, protein_id) not in all_positive_pairs
+    ]
+    candidates.sort(
+        key=lambda pair: (
+            stable_int(
+                seed, "validation_negative",
+                "%s|%s|%s" % (unit_key, pair[0], pair[1]),
+            ),
+            pair,
+        )
+    )
+    return [
+        [compound_id, protein_id, 0.0]
+        for compound_id, protein_id in candidates[:required]
+    ]
+
+
+def _support_inner_metadata(
+        mode, ratio, seed, inner_positive_edges, inner_negative_records,
+        validation_positive_edges, validation_negative_records,
+        heldout_compounds, heldout_proteins, discarded_positive_count):
+    inner_positive_records = [
+        [compound_id, protein_id, 1.0]
+        for compound_id, protein_id in inner_positive_edges
+    ]
+    validation_positive_records = [
+        [compound_id, protein_id, 1.0]
+        for compound_id, protein_id in validation_positive_edges
+    ]
+    inner_records = inner_positive_records + inner_negative_records
+    validation_records = (
+        validation_positive_records + validation_negative_records
+    )
+    train_pairs = {(row[0], row[1]) for row in inner_records}
+    validation_pairs = {(row[0], row[1]) for row in validation_records}
+    if train_pairs & validation_pairs:
+        raise ValueError(
+            "Support-state inner train and validation pairs overlap."
+        )
+    assignment_lines = [
+        "%s\t%s\t%d\t%s"
+        % (row[0], row[1], int(float(row[2]) > 0), partition)
+        for partition, records in (
+            ("train", inner_records),
+            ("validation", validation_records),
+        )
+        for row in records
+    ]
+    assignment_hash = hashlib.sha256(
+        ("\n".join(sorted(assignment_lines)) + "\n").encode("utf-8")
+    ).hexdigest()
+    metadata = {
+        "strategy": "support_complete_%s_inner" % mode,
+        "mode": mode,
+        "seed": int(seed),
+        "ratio": float(ratio),
+        "inner_train_records": len(inner_records),
+        "inner_train_positive_count": len(inner_positive_records),
+        "inner_train_negative_count": len(inner_negative_records),
+        "validation_records": len(validation_records),
+        "validation_positive_count": len(validation_positive_records),
+        "validation_negative_count": len(validation_negative_records),
+        "heldout_compounds": len(heldout_compounds),
+        "heldout_proteins": len(heldout_proteins),
+        "discarded_buffer_positive_count": int(discarded_positive_count),
+        "assignments_sha256": assignment_hash,
+        "inner_train_records_sha256": records_sha256(inner_records),
+        "validation_records_sha256": records_sha256(validation_records),
+    }
+    return inner_records, validation_records, metadata
+
+
+def build_support_state_inner_validation(
+        outer_training_records, all_positive_pairs, mode, ratio, seed,
+        unit_key):
+    """Build deterministic inner validation with the outer support state."""
+    ratio = float(ratio)
+    if not 0.0 < ratio < 1.0:
+        raise ValueError(
+            "Support-state inner validation ratio must be between 0 and 1."
+        )
+    all_positive_pairs = {
+        (str(compound_id), str(protein_id))
+        for compound_id, protein_id in all_positive_pairs
+    }
+    outer_positive_edges = {
+        (str(compound_id), str(protein_id))
+        for compound_id, protein_id, label in outer_training_records
+        if float(label) > 0
+    }
+    if len(outer_positive_edges) < 2:
+        raise ValueError(
+            "Support-state inner validation requires at least two positives."
+        )
+    outer_compounds = {edge[0] for edge in outer_positive_edges}
+    outer_proteins = {edge[1] for edge in outer_positive_edges}
+    inner_key = "%s|inner|%s" % (unit_key, mode)
+
+    if mode == "target_cold":
+        heldout_proteins = _heldout_entities(
+            outer_proteins, ratio, seed, "protein"
+        )
+        heldout_compounds = set()
+        inner_positive_edges = {
+            edge for edge in outer_positive_edges
+            if edge[1] not in heldout_proteins
+        }
+        inner_compounds = {edge[0] for edge in inner_positive_edges}
+        validation_positive_edges = {
+            edge for edge in outer_positive_edges
+            if edge[1] in heldout_proteins and edge[0] in inner_compounds
+        }
+        discarded_positive_count = (
+            len(outer_positive_edges)
+            - len(inner_positive_edges)
+            - len(validation_positive_edges)
+        )
+        validation_negative_records = (
+            _protein_matched_validation_negatives(
+                validation_positive_edges,
+                inner_compounds,
+                all_positive_pairs,
+                seed,
+                inner_key,
+            )
+        )
+    elif mode == "double_cold":
+        heldout_compounds = _heldout_entities(
+            outer_compounds, ratio, seed, "compound"
+        )
+        heldout_proteins = _heldout_entities(
+            outer_proteins, ratio, seed, "protein"
+        )
+        inner_positive_edges = {
+            edge for edge in outer_positive_edges
+            if edge[0] not in heldout_compounds
+            and edge[1] not in heldout_proteins
+        }
+        validation_positive_edges = {
+            edge for edge in outer_positive_edges
+            if edge[0] in heldout_compounds
+            and edge[1] in heldout_proteins
+        }
+        discarded_positive_count = (
+            len(outer_positive_edges)
+            - len(inner_positive_edges)
+            - len(validation_positive_edges)
+        )
+        validation_negative_records = _block_validation_negatives(
+            len(validation_positive_edges),
+            heldout_compounds,
+            heldout_proteins,
+            all_positive_pairs,
+            seed,
+            inner_key,
+        )
+    else:
+        raise ValueError(
+            "Support-state inner mode must be target_cold or double_cold."
+        )
+
+    if not inner_positive_edges:
+        raise ValueError(
+            "Support-state inner split contains no training positives."
+        )
+    if not validation_positive_edges:
+        raise ValueError(
+            "Support-state inner split contains no validation positives. "
+            "Use a larger validation.ratio or a different validation.seed."
+        )
+    inner_allowed_proteins = (
+        outer_proteins - heldout_proteins
+    )
+    inner_negative_records = build_compound_matched_training_negatives(
+        inner_positive_edges,
+        inner_allowed_proteins,
+        all_positive_pairs,
+        seed,
+        inner_key,
+    )
+    return _support_inner_metadata(
+        mode,
+        ratio,
+        seed,
+        inner_positive_edges,
+        inner_negative_records,
+        validation_positive_edges,
+        validation_negative_records,
+        heldout_compounds,
+        heldout_proteins,
+        discarded_positive_count,
+    )
+
+
 def _verify_manifest_files(manifest_path, manifest):
     root = Path(manifest_path).resolve().parent
     for relation, metadata in manifest["sources"].items():
