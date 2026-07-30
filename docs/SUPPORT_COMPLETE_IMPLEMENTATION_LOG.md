@@ -185,12 +185,38 @@ Double-cold: best validation AUPR 0.553659 at epoch 12; stopped at epoch 22
 二者均设置 `evaluation.outer.test=False`，外层测试未执行。这些结果只证明
 support-state 验证、早停、checkpoint 保存和恢复链路完整。
 
+## 2026-07-30：缺失上下文分支 Gate 1
+
+两个候选均使用与对应 NoContext 完全相同的 manifest、单元、inner-validation、
+seed、早停和模型参数，只改变上下文项开关；外层测试均关闭。
+
+### Target-cold C-Dctx
+
+```text
+NoContext best validation AUPR: 0.829882
+C-Dctx best validation AUPR:    0.606159
+delta:                         -0.223723
+best epoch:                    50
+context weight mean abs:        2.817455
+```
+
+结论：Gate 失败。停止 C-Dctx，不增加 seed、不调验证划分、不读取外层测试。
+
+### Double-cold Hctx-Dctx
+
+```text
+NoContext best validation AUPR: 0.553659
+Hctx-Dctx best validation AUPR: 0.578218
+delta:                         +0.024559
+best epoch:                    44
+context weight mean abs:        2.233022
+```
+
+结论：通过单库单单元低成本 Gate，但尚未形成四库证据。
+
 ## 下一步
 
-支持状态内层验证及两个 NoContext pilot 已完成。后续顺序更新为：
-
-1. 实现 `C-Dctx`，只在 Target-cold Gate 1 中与完全相同的 NoContext 单元配对；
-2. 实现 `Hctx-Dctx`，只在 Double-cold Gate 1 中配对；
-3. 两个分支均通过后，再实现同一 checkpoint 的四状态训练与路由。
-
-在 Gate 1 前不创建四库长训练配置，不把数据可行性或入口完成度表述为模型创新。
+由于两个缺失分支没有同时通过，暂不实现原定的完整四状态路由。先对已保存的
+C-Dctx 与 Hctx-Dctx checkpoint 做内层验证纯推理分解，比较 base-only、
+context-only 和相加分数。只有确认 Hctx-Dctx 的独立上下文分支在 Double-cold
+状态下仍具备有效排序能力，才实现同一 checkpoint 的训练支持度路由。
