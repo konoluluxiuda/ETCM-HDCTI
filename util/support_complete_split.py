@@ -273,6 +273,259 @@ def _block_validation_negatives(
     ]
 
 
+def _rectangle_negatives(
+        required, allowed_compounds, allowed_proteins, all_positive_pairs,
+        seed, unit_key, forbidden_pairs=None):
+    """Sample deterministic negatives without materializing the full rectangle."""
+    compound_ids = sorted(str(value) for value in allowed_compounds)
+    protein_ids = sorted(str(value) for value in allowed_proteins)
+    forbidden_pairs = {
+        (str(left), str(right))
+        for left, right in (forbidden_pairs or set())
+    }
+    if not compound_ids or not protein_ids:
+        raise ValueError(
+            "Negative rectangle for %s has an empty endpoint set." % unit_key
+        )
+    rectangle_size = len(compound_ids) * len(protein_ids)
+    start = stable_int(seed, "rectangle_start", unit_key) % rectangle_size
+    stride = _coprime_stride(
+        rectangle_size,
+        stable_int(seed, "rectangle_stride", unit_key),
+    )
+    selected = []
+    for offset in range(rectangle_size):
+        flat_index = (start + offset * stride) % rectangle_size
+        compound_id = compound_ids[flat_index // len(protein_ids)]
+        protein_id = protein_ids[flat_index % len(protein_ids)]
+        if (compound_id, protein_id) in all_positive_pairs:
+            continue
+        if (compound_id, protein_id) in forbidden_pairs:
+            continue
+        selected.append([compound_id, protein_id, 0.0])
+        if len(selected) == required:
+            break
+    if len(selected) != required:
+        raise ValueError(
+            "Negative rectangle for %s has %d candidates; %d are required."
+            % (unit_key, len(selected), required)
+        )
+    return selected
+
+
+def _entity_preserving_pair_holdout(edges, ratio, seed, unit_key):
+    """Hold out warm-warm edges while retaining every endpoint in training."""
+    edges = {(str(left), str(right)) for left, right in edges}
+    if len(edges) < 2:
+        raise ValueError("Warm-warm holdout requires at least two edges.")
+    desired = max(1, int(round(len(edges) * float(ratio))))
+    compound_degree = Counter(left for left, _ in edges)
+    protein_degree = Counter(right for _, right in edges)
+    ordered = sorted(
+        edges,
+        key=lambda edge: (
+            stable_int(
+                seed,
+                "warm_pair_holdout",
+                "%s|%s|%s" % (unit_key, edge[0], edge[1]),
+            ),
+            edge,
+        ),
+    )
+    heldout = set()
+    for edge in ordered:
+        compound_id, protein_id = edge
+        if compound_degree[compound_id] <= 1:
+            continue
+        if protein_degree[protein_id] <= 1:
+            continue
+        heldout.add(edge)
+        compound_degree[compound_id] -= 1
+        protein_degree[protein_id] -= 1
+        if len(heldout) == desired:
+            break
+    if not heldout:
+        raise ValueError(
+            "No entity-preserving warm-warm edge can be held out for %s."
+            % unit_key
+        )
+    return edges - heldout, heldout
+
+
+def build_four_state_support_unit(
+        manifest_path, compound_group, protein_group,
+        warm_holdout_ratio=0.1, seed=None):
+    """Build one shared training graph and four disjoint support-state tests."""
+    warm_holdout_ratio = float(warm_holdout_ratio)
+    if not 0.0 < warm_holdout_ratio < 1.0:
+        raise ValueError("warm_holdout_ratio must be between 0 and 1.")
+    manifest_path = Path(manifest_path).expanduser().resolve()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("version") != 2:
+        raise ValueError("Four-state support unit requires manifest version 2.")
+    if manifest.get("protocol") != "support_complete_cold_start":
+        raise ValueError("Unexpected support-complete protocol.")
+    _verify_manifest_files(manifest_path, manifest)
+    root = manifest_path.parent
+    seed = int(manifest["seed"] if seed is None else seed)
+    unit_key = "four_state_c%d_p%d" % (
+        int(compound_group), int(protein_group)
+    )
+
+    all_positive_pairs = read_pairs(manifest["sources"]["C_P"]["path"])
+    compound_groups = read_groups(
+        root / manifest["artifacts"][
+            "double_cold_compound_groups"
+        ]["path"],
+        "compound",
+    )
+    protein_groups = read_groups(
+        root / manifest["artifacts"]["cold_target_groups"]["path"],
+        "protein",
+    )
+    cold_compounds = set(compound_groups[int(compound_group)])
+    cold_proteins = set(protein_groups[int(protein_group)])
+
+    warm_warm_pool = {
+        edge for edge in all_positive_pairs
+        if edge[0] not in cold_compounds and edge[1] not in cold_proteins
+    }
+    training_positive_edges, warm_warm_positive_edges = (
+        _entity_preserving_pair_holdout(
+            warm_warm_pool,
+            warm_holdout_ratio,
+            seed,
+            unit_key,
+        )
+    )
+    warm_compounds = {left for left, _ in training_positive_edges}
+    warm_proteins = {right for _, right in training_positive_edges}
+
+    state_positive_edges = {
+        "warm_warm": warm_warm_positive_edges,
+        "cold_warm": {
+            edge for edge in all_positive_pairs
+            if edge[0] in cold_compounds and edge[1] in warm_proteins
+        },
+        "warm_cold": {
+            edge for edge in all_positive_pairs
+            if edge[0] in warm_compounds and edge[1] in cold_proteins
+        },
+        "cold_cold": {
+            edge for edge in all_positive_pairs
+            if edge[0] in cold_compounds and edge[1] in cold_proteins
+        },
+    }
+    empty_states = [
+        state for state, edges in state_positive_edges.items() if not edges
+    ]
+    if empty_states:
+        raise ValueError(
+            "Four-state unit %s has no positives for: %s."
+            % (unit_key, ", ".join(empty_states))
+        )
+
+    training_negative_records = build_compound_matched_training_negatives(
+        training_positive_edges,
+        warm_proteins,
+        all_positive_pairs,
+        seed,
+        unit_key,
+    )
+    training_positive_records = [
+        [compound_id, protein_id, 1.0]
+        for compound_id, protein_id in training_positive_edges
+    ]
+    training_records = (
+        training_positive_records + training_negative_records
+    )
+
+    state_endpoints = {
+        "warm_warm": (warm_compounds, warm_proteins),
+        "cold_warm": (cold_compounds, warm_proteins),
+        "warm_cold": (warm_compounds, cold_proteins),
+        "cold_cold": (cold_compounds, cold_proteins),
+    }
+    state_records = {}
+    state_metadata = {}
+    seen_test_pairs = set()
+    train_pairs = {(row[0], row[1]) for row in training_records}
+    for state in (
+            "warm_warm", "cold_warm", "warm_cold", "cold_cold"):
+        positive_records = [
+            [compound_id, protein_id, 1.0]
+            for compound_id, protein_id in state_positive_edges[state]
+        ]
+        negative_records = _rectangle_negatives(
+            len(positive_records),
+            state_endpoints[state][0],
+            state_endpoints[state][1],
+            all_positive_pairs,
+            seed,
+            "%s|%s" % (unit_key, state),
+            forbidden_pairs=train_pairs | seen_test_pairs,
+        )
+        records = positive_records + negative_records
+        pairs = {(row[0], row[1]) for row in records}
+        if train_pairs & pairs:
+            raise ValueError(
+                "Four-state %s test overlaps training." % state
+            )
+        if seen_test_pairs & pairs:
+            raise ValueError(
+                "Four-state test pair appears in multiple states."
+            )
+        if any(
+                float(row[2]) <= 0
+                and (row[0], row[1]) in all_positive_pairs
+                for row in records):
+            raise ValueError(
+                "Four-state %s sampled a known positive as negative." % state
+            )
+        seen_test_pairs.update(pairs)
+        state_records[state] = records
+        state_metadata[state] = {
+            "positive_count": len(positive_records),
+            "negative_count": len(negative_records),
+            "records_sha256": records_sha256(records),
+        }
+
+    assignment_lines = [
+        "%s\t%s\t%d\t%s" % (
+            row[0], row[1], int(float(row[2]) > 0), partition
+        )
+        for partition, records in (
+            [("train", training_records)]
+            + [
+                ("test_%s" % state, state_records[state])
+                for state in (
+                    "warm_warm", "cold_warm",
+                    "warm_cold", "cold_cold",
+                )
+            ]
+        )
+        for row in records
+    ]
+    metadata = {
+        "strategy": "support_complete_four_state",
+        "unit_key": unit_key,
+        "seed": seed,
+        "warm_holdout_ratio": warm_holdout_ratio,
+        "heldout_compounds": len(cold_compounds),
+        "heldout_proteins": len(cold_proteins),
+        "warm_compounds": len(warm_compounds),
+        "warm_proteins": len(warm_proteins),
+        "training_positive_count": len(training_positive_records),
+        "training_negative_count": len(training_negative_records),
+        "training_records_sha256": records_sha256(training_records),
+        "states": state_metadata,
+        "assignments_sha256": hashlib.sha256(
+            ("\n".join(sorted(assignment_lines)) + "\n").encode("utf-8")
+        ).hexdigest(),
+    }
+    return training_records, state_records, metadata
+
+
 def _support_inner_metadata(
         mode, ratio, seed, inner_positive_edges, inner_negative_records,
         validation_positive_edges, validation_negative_records,

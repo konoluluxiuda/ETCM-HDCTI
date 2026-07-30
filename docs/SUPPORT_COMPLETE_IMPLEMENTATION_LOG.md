@@ -254,3 +254,28 @@ Double-cold Hctx-Dctx:
 2. Hctx-Dctx context-only 相对 NoContext 提高 `0.012903`，具有独立路由价值；
 3. 下一实现采用训练支持度确定性路由，Target-cold 保留 base，Double-cold
    使用梯度隔离的 Hctx-Dctx head，不再要求每个状态都新增一个上下文公式。
+
+## 2026-07-30：共享四状态训练单元
+
+新增：
+
+```text
+build_four_state_support_unit(...)
+tests/test_support_complete_four_state.py
+docs/SUPPORT_COMPLETE_FOUR_STATE_UNIT.md
+```
+
+该单元固定一组 cold compound 和 cold protein，从同一训练图同时生成
+warm-warm、cold-warm、warm-cold 和 cold-cold 四个互斥测试集合。四库真实
+构造均通过，正例数如下：
+
+| 数据集 | warm-warm | cold-warm | warm-cold | cold-cold |
+|---|---:|---:|---:|---:|
+| TCM-Suite | 3,079 | 6,953 | 4,074 | 999 |
+| TCMSP | 3,834 | 9,113 | 6,374 | 1,645 |
+| SymMap2.0 | 2,470 | 5,757 | 5,681 | 1,470 |
+| ETCM2.0-mention10 | 5,657 | 14,160 | 13,932 | 3,516 |
+
+现有 support-complete 与 Strict 回归测试共 37 项通过。下一步先把该派生单元
+冻结为带哈希的磁盘 artifact，并实现四状态一致的 inner-validation；在此之前
+不接模型、不运行四库 outer test。
