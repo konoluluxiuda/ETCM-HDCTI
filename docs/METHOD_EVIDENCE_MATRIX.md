@@ -70,7 +70,7 @@ CHCR 只改变训练目标：对已知训练正样本构造同 H-C degree 的反
 | ID | 方法或工作 | 允许主张 | 主要证据 | 等级 | 关键边界 | 来源 |
 |---|---|---|---|---|---|---|
 | P1 | Strict 数据与评估协议 | 每折 C-P 图统计仅使用训练正边，负样本、fold、seed 和实体 ID 固定且可审计 | 固定 manifest、训练 C-P PageRank、二部节点类型隔离、H-D 关闭及泄漏测试 | A（协议） | 属于可信评估基础，不是模型结构创新 | [修改计划](修改计划.md)、[HDCTI 论文笔记](HDCTI_PAPER_NOTES.md) |
-| M1 | 候选级 Hctx-P | 显式药材上下文—靶点交互能够补充独立双超图编码，并在多数数据库及 compound cold-start 下改善排序 | 无稠密注意力四库随机边五折 AUPR 增量 `-0.000255/+0.011325/+0.014082/+0.011847`，macro `+0.009250`，TCMSP/SymMap/ETCM 均为 5/5 folds 提高 | A | TCM-Suite 仅 1/5 folds 提高且均值轻微下降；不能声称四库全部改善 | [HCTX_NO_DENSE_ABLATION](HCTX_NO_DENSE_ABLATION.md)、[CONTEXT_INTERACTION](CONTEXT_INTERACTION.md) |
+| M1 | 候选级 Hctx-P | 显式药材上下文—靶点交互能够补充独立双超图编码，并为 side-information-assisted compound cold-start 提供可迁移分数 | 随机边四库 AUPR macro `+0.009250`；cold-start 相对 NoContext 四库增量 `+0.203622/+0.584248/+0.407087/+0.556348`，macro `+0.437826`，20/20 folds 提高 | A | 随机边 TCM-Suite 轻微下降；cold-start 使用完整 H-C 侧信息，且 NoContext 是非归纳原模型，不代表现代属性式 cold-start 基线 | [HCTX_NO_DENSE_ABLATION](HCTX_NO_DENSE_ABLATION.md)、[cold-start 递进消融](COLD_START_HCTX_ABLATION.md) |
 | M2-P | CHCR 性能贡献 | CHCR 是普通随机边协议下跨库非劣、在 ETCM 上更明显的训练期上下文正则 | 无稠密注意力四库五折 AUPR 增量 `+0.000408/+0.001107/+0.000039/+0.006329`，macro `+0.001971` | A | SymMap 基本持平；不能声称四库大幅提高或所有分类指标改善 | [UNIFIED_NO_DENSE_CHCR](UNIFIED_NO_DENSE_CHCR.md) |
 | M2-M | CHCR 机制证据 | 在具备稳定支持的环境中，冻结 Hctx-P 使用了超出 H-C degree 的上下文信息 | 同 degree donor 四库 20-fold 纯推理：TCM-Suite、TCMSP、ETCM 为 5/5 folds 支持 | C | SymMap 仅 1/5 folds 通过；四库普适机制判定为 No-Go | [CHCR_DONOR_CONTROLS](CHCR_DONOR_CONTROLS.md) |
 | M2-S | CHCR 支持度边界 | CHCR/Hctx-P 的上下文可靠性受 H-C 与训练 C-P 支持度调节 | SymMap 在 `H-C degree=1`、训练 `C-P degree=0/1-2` 方向不一致；TCM-Suite 在训练 `C-P degree=1-2/3-5` 也不稳定 | C | 这是失败模式定位，不等于已经实现或验证自适应路由 | [CHCR_DONOR_CONTROLS](CHCR_DONOR_CONTROLS.md) |
@@ -79,7 +79,8 @@ CHCR 只改变训练目标：对已知训练正样本构造同 H-C degree 的反
 | F1 | 场景化双配置证据 | CHCR 与 SDIS 分别说明随机边上下文正则和 cold-start 支持度失配 | 两套四库冻结协议；组合实验显式 No-Go | 补充 | 作者已决定双配置不构成最终统一方法，不能写为 `Ours-full` 或核心框架贡献 | [最终方法统一性决策](UNIFIED_METHOD_DIRECTION.md)、[SELF_EXCLUDED_HERB_CONTEXT_AUDIT](SELF_EXCLUDED_HERB_CONTEXT_AUDIT.md) |
 | C1 | SCHE 统一候选 | 独立 warm/cold Hctx-P 参数与逐样本支持度路由未能消除共享参数冲突 | TCM-Suite cold-start fold 1 GPU inner-validation AUPR `0.650499`，低于冻结 SDIS `0.669984`，差值 `-0.019485`；CPU 复现为 `0.650017` | No-Go | 不进入四库，不搜索 ratio、seed、margin、weight、soft gate 或数据库特定参数；不能写入最终贡献 | [SUPPORT_CONDITIONED_DUAL_EXPERT](SUPPORT_CONDITIONED_DUAL_EXPERT.md) |
 | C2 | 支持掩码 episodic training | 用 warm compound 制造零 C-P 支持的 pseudo-cold episode 具有工程合理性，但不能作为独立新机制 | DropoutNet、PT-GNN 和 CGRC 已分别覆盖协同输入 dropout、warm-to-cold episode 与全交互边掩码重建；CLCRec/ALDI 覆盖对比和蒸馏变体 | No-Go（创新性） | 不实现、不进入 Pilot；若后续作为训练技巧使用，必须引用近邻工作并降级表述 | [SUPPORT_MASKED_EPISODIC_AUDIT](SUPPORT_MASKED_EPISODIC_AUDIT.md) |
-| C3 | HPLGA 线性全局注意力 | 用 H-C/P-D 超图 PageRank 调制核化线性全局读取，以线性复杂度补回被删除的全节点感受野 | 原论文注意力消融提供问题依据；公式与复杂度审计已完成，尚无模型结果 | Conditional Go | 线性 attention、PageRank attention 和 hypergraph Transformer 均有近邻工作；只有 Gate 0/1 和统一 cold-start Gate 均通过后才可列为第三机制 | [HYPERGRAPH_PAGERANK_LINEAR_ATTENTION](HYPERGRAPH_PAGERANK_LINEAR_ATTENTION.md) |
+| C3 | HPLGA 线性全局注意力 | 用 H-C/P-D 超图 PageRank 调制核化线性全局读取，以线性复杂度补回被删除的全节点感受野 | Gate 0 通过；四库 fold 1 validation AUPR 增量 `+0.000448/-0.001326/-0.004159/-0.000067`，macro `-0.001276`，仅 1/4 提高 | No-Go | 分支残差尺度均已激活；停止完整五折、cold-start Gate 和所有结构/参数搜索，不能列为第三机制 | [HYPERGRAPH_PAGERANK_LINEAR_ATTENTION](HYPERGRAPH_PAGERANK_LINEAR_ATTENTION.md) |
+| C4 | H-C/P-D 侧关系辅助重构 | 用侧关系拓扑保持约束 compound、protein 与超边表示 | NeoDTI 已对全部异构关系使用关系特定投影和联合边重构，并报告只重构 DTI 时 AUPR 下降 `5.5%`；后续 DTI 图自编码器继续沿用该范式 | No-Go（创新性） | 串联门槛第一关失败，不执行冻结表示 probe、训练实现或损失权重搜索；只能作为有出处的普通正则 | [侧关系重构审计](SIDE_RELATION_RECONSTRUCTION_AUDIT.md) |
 | D1 | ETCM2.0 数据工作 | 构建具有实体映射、关系审计和剪枝依据的 ETCM2.0 CTI 数据集，用于外部验证和案例研究 | mention10/core 构建、数据统计、关系交集与映射审查 | A（数据） | mention10 是证据频次过滤；不能声称覆盖 ETCM2.0 全部实体 | [DATASET_STATISTICS](DATASET_STATISTICS.md)、[ETCM2_CORE_NOTES](ETCM2_CORE_NOTES.md) |
 | D2 | ETCM2.0 Top-K 独立核验 | 冻结候选中存在可由外部实验支持的预测，同时高排名候选也可能与直接实验冲突 | 检索前冻结 15 个 pair，完成 45 个 BindingDB/ChEMBL/PubMed 查询；B1 2 条、E 12 条、Conflict 1 条 | B（案例） | `2/15` 不是总体 precision；E 不是确认负例；页面路径不是独立 C-P 证据 | [ETCM Top-K 核验](ETCM_TOPK_MANUAL_VALIDATION.md)、[代表案例](ETCM_REPRESENTATIVE_CASES.md) |
 
@@ -87,7 +88,7 @@ CHCR 只改变训练目标：对已知训练正样本构造同 H-C degree 的反
 
 | 主题 | 允许表述 | 禁止表述 |
 |---|---|---|
-| Hctx-P | 建立候选 compound 药材上下文与候选 target 的显式交互；四库 macro AUPR 提高且 3/4 数据库稳定受益 | 四库全部提高或显著提高；首次使用药材信息；完整模拟了生物结合机制 |
+| Hctx-P | 随机边上四库 macro AUPR 提高；side-information-assisted compound cold-start 上四库 20/20 folds 提高 | 随机边四库全部提高；不依赖侧信息的 de novo cold-start；优于所有现代归纳模型 |
 | CHCR 性能 | 四库随机边 AUPR 均值非下降，主要增益集中于 ETCM | 四库均显著提升；对任意数据库都有效 |
 | CHCR 机制 | 三个数据库支持超出 H-C degree 的上下文特异性 | 已在四库排除全部度数与研究热度偏倚 |
 | 反事实 donor | 合成上下文扰动与训练正样本的 ranking regularization | 生物学真实负药材上下文；因果干预证据 |
@@ -112,6 +113,7 @@ CHCR 只改变训练目标：对已知训练正样本构造同 H-C degree 的反
 | SDIS + CHCR | TCM-Suite `-0.019451`，违反单库退化上限 | 必须披露，支持场景化配置而非插件堆叠 |
 | SCHE warm/cold 双专家 | TCM-Suite fold 1 GPU validation AUPR `0.650499`，相对冻结 SDIS `-0.019485`；CPU 复现差异仅 `0.000482` | 预注册首门槛即失败，停止四库和统一模型主张 |
 | 支持掩码 episodic training | 与 DropoutNet、PT-GNN、CGRC 的 cold-start simulation 核心动作高度同构 | 在创新性门槛停止，不以改名方式进入新 Pilot |
+| H-C/P-D 侧关系辅助重构 | NeoDTI 已联合重构 DTI 与其他异构关系，核心训练动作高度同构 | 在创新性门槛停止；不运行 frozen probe 或训练 Pilot |
 | CHCR 四库普适机制 | SymMap 仅 1/5 folds 通过 donor-control | 限制机制主张，不否定其已观察的性能结果 |
 
 ## 7. 论文表格映射
@@ -191,18 +193,20 @@ Herb context 与可解释路径
 |---|---|---|---|
 | 已完成 | 最终 `attention.max.nodes=0` 下四库匹配的 `Strict-HDCTI vs Hctx-P` 普通随机边五折直接消融 | M1 是共享骨干创新，必须有最终统一口径直接证据 | 冻结判定 PASS：macro AUPR `+0.009250`，3/4 数据库不下降且达到逐折方向门槛 |
 | 已完成 | 最终主结果、消融和场景表统一生成 | 避免混用历史 attention、epoch 或 split 口径 | 已通过冻结来源与配置哈希生成随机边 Strict/Hctx-P/CHCR、cold-start Hctx-P/SDIS 固定阈值及校准阈值表，见 `FINAL_RESULTS_TABLES.md` |
-| 加强 | 四库统一 cold-start NoContext 完整五折缺失 | 当前仅有单折 Pilot；ETCM 旧五折也不是统一 `attention.max.nodes=0` 口径 | 不阻塞 SDIS 相对匹配 Hctx-P 的直接消融；若终稿需要展示 Hctx-P 的四库 cold-start 绝对贡献，再补四个 NoContext 五折 |
+| 已完成 | 四库统一 cold-start NoContext 完整五折 | 同一协议已形成 `NoContext -> Hctx-P -> Hctx-P + SDIS` 递进证据 | Hctx-P 相对 NoContext macro AUPR `+0.437826`、20/20 folds 提高；SDIS 再提高 `+0.028024`，见 [cold-start 递进消融](COLD_START_HCTX_ABLATION.md) |
 | 可选 | 未形成统一硬件复杂度 benchmark | 可能用于回应 CHCR 训练成本与 SDIS 部署代价，但不影响主要有效性结论 | 正文仅报告理论增量：Hctx-P 少量参数、CHCR 仅训练期开销、SDIS 无参数；审稿明确要求时再补硬件实测 |
 | 已完成 | ETCM Top-K 外部证据闭环 | 数据贡献和中医药解释需要独立于训练数据的证据边界 | 15 个冻结 pair 的 45 个查询已完成；已冻结 2 个 B1 正向案例和 1 个 Conflict 失败案例，待制作论文图 |
 | 已完成 | 同一 Strict 协议下的外部同输入对比表 | Dual-HGNN-CTI、LightGCN-CTI、R-GCN-CTI 与稀疏 HGT-CTI 的四库 16 个外层五折任务全部完成；R-GCN 是四个基线中最强者。最终随机边模型相对 R-GCN 的 macro AUPR 为 `+0.001408`，在 SymMap/ETCM 较高、TCMSP 基本持平、TCM-Suite 略低 | 两个冻结结果源及逐行配置哈希已接入 `FINAL_RESULTS_TABLES.md`；HGT 使用统一 64 入邻居上限，其 ETCM 结果不代表无采样完整 HGT。停止库特定调参；作者材料若到达，再追加可原样复现的属性模型 |
 | 加强 | 除 ETCM CHCR 外，其他最终配置主要为单训练 seed | fold 方差不能代表初始化稳定性 | 在主表冻结后选择一个代表库补 3 seed，或在局限性中明确披露 |
 | 可选 | disease-aware / target cold-start 未形成四库最终结果 | 可增强对原论文和困难泛化场景的覆盖 | 仅在主表完成且计算预算允许时追加，不阻塞当前模型冻结 |
-| 阻塞 | HPLGA 尚未通过模型门槛 | 第三机制公式已形成，但线性/PageRank/超图 attention 均有直接近邻，当前没有有效性证据 | 只实现 Gate 0；通过后执行冻结四库 validation-only Gate 1，再决定是否进入统一 cold-start |
+| 已完成，No-Go | HPLGA 模型门槛 | Gate 0 工程与复杂度通过，但四库 Gate 1 macro AUPR `-0.001276`，且 SymMap2.0 下降超过预注册上限 | 停止完整五折和统一 cold-start；保留实现作为负结果，不再调参 |
 
 ## 9. 当前决策
 
 既有 No-Go 路线继续冻结，不重新开启 SACR、donor、margin、pseudo-cold 或
-数据集特定路由调参。唯一开放候选为 HPLGA，且只允许执行预注册 Gate。
+数据集特定路由调参。HPLGA 已在预注册 Gate 1 判定 No-Go；H-C/P-D 侧关系
+辅助重构也因与 NeoDTI 的多关系拓扑重构高度同构，在创新性门槛停止。当前没有
+开放的第三模型候选。
 
 四库无稠密注意力随机边 Hctx-P 直接消融已经完成：
 
@@ -214,7 +218,7 @@ Strict-HDCTI + Hctx-P, Hctx-P on
 
 两组复用了现有 `no_dense_chcr_full` 批次中的 Hctx-P 配置、split manifest、seed、inner-validation、早停和 Dot decoder，只补跑缺失的 NoContext 一侧。最终 AUPR 增量为 TCM-Suite `-0.000255`、TCMSP `+0.011325`、SymMap2.0 `+0.014082`、ETCM2.0 mention10 `+0.011847`，macro `+0.009250`，冻结判定为 **PASS**。下一项任务是生成两种协议的最终统一结果表，而不是继续增加新模型模块。
 
-两种协议的统一结果表现已生成，见 [FINAL_RESULTS_TABLES.md](FINAL_RESULTS_TABLES.md)。生成器 `tools/build_paper_results_tables.py` 校验冻结结果 SHA-256、逐行配置 SHA-256、Strict 协议、split、seed、Dot decoder、`attention.max.nodes=0` 以及校准前后 AUC/AUPR 一致性。主表不使用单折 cold-start NoContext 或旧 attention 口径补齐缺失行。
+两种协议的统一结果表现已生成，见 [FINAL_RESULTS_TABLES.md](FINAL_RESULTS_TABLES.md)。生成器 `tools/build_paper_results_tables.py` 校验冻结结果 SHA-256、逐行配置 SHA-256、Strict 协议、split、seed、Dot decoder、`attention.max.nodes=0` 以及校准前后 AUC/AUPR 一致性。cold-start 主表现已包含匹配的 NoContext、Hctx-P 和 Hctx-P+SDIS 三阶段结果。
 
 ETCM Top-K 证据闭环也已完成，见
 [ETCM_TOPK_MANUAL_VALIDATION.md](ETCM_TOPK_MANUAL_VALIDATION.md)。两个 B1
@@ -226,9 +230,50 @@ SCHE 统一模型 Pilot 已按预注册门槛判定 No-Go；作者同时否决�
 Hctx-P + SDIS 的支持掩码 episodic training 也已完成近邻工作审计，并因与
 DropoutNet、PT-GNN、CGRC 等方法高度同构而在创新性门槛判定 No-Go，不再进入
 单折或四库实验。当前已冻结主模型仍为 `Hctx-P + SDIS`。为补足第三项模型
-机制，现只开放 HPLGA：以 H-C/P-D 超图 PageRank 调制核化线性全局注意力，
-补回被关闭的全局节点依赖。该候选不等价于上述 masking、蒸馏、对比或双专家，
-但 PageRank attention 和线性 graph Transformer 已有近邻，因此必须先通过
-Gate 0/1 和统一 cold-start Gate，才能改变最终方法状态。
+机制而实现的 HPLGA 已完成 Gate 0/1：工程与复杂度检查通过，但四库 macro
+AUPR 下降 `0.001276`，仅 TCM-Suite 提高，SymMap2.0 下降 `0.004159`。因此
+不进入统一 cold-start Gate，最终模型仍冻结为 `Hctx-P + SDIS`。
+
+四库 cold-start NoContext 完整五折也已补齐。Hctx-P 相对 NoContext 的 AUPR
+增量为 `+0.203622/+0.584248/+0.407087/+0.556348`，macro `+0.437826`，
+20/20 folds 同向；SDIS 在同一骨干上继续提高 macro `+0.028024`。因此当前
+两个模型机制已经在同一 side-information-assisted compound cold-start 问题中
+形成明确递进，不再依赖把 CHCR 和 SDIS 拼接为双场景框架。
 
 执行协议、预注册门槛和输出文件见 [HCTX_NO_DENSE_ABLATION.md](HCTX_NO_DENSE_ABLATION.md)。当前实现会在运行前校验四库配置 SHA-256，并只允许 `model.variant`、`context.interaction` 与 `context.herb_protein` 三项不同；完成后自动输出逐折配对结果和 `PASS/NO-GO` 判定。
+
+## 10. 2026-08-04 V3 冻结上下文专家更新
+
+本节覆盖本文档中“当前没有开放的第三模型候选”和“最终方法仅为
+`Hctx-P + SDIS`”的旧状态描述，但不改变 SCHE、V2 四状态联合重训或
+Hctx-Dctx residual 的 No-Go 结论。
+
+新 V3 与上述失败方案的关键区别是：先冻结 NoContext base checkpoint，再只用
+inner unit 训练隔离的 Hctx-P linear head；推理时由训练支持状态执行固定路由：
+
+```text
+WW = frozen base + frozen Hctx-P head
+CW = frozen Hctx-P head
+WC = frozen base
+CC = frozen base
+```
+
+四库 inner Gate 全部通过后，模型、head、epoch 与路由在查看 outer 指标前完成
+冻结。独立 outer-unit 评价未执行训练或参数选择，结果如下：
+
+| 数据集 | NoContext Macro-AUPR | V3 Macro-AUPR | 差值 | WW | CW | WC | CC | Gate |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| TCM-Suite | 0.571853 | 0.617732 | +0.045880 | +0.018818 | +0.164701 | +0.000000 | +0.000000 | PASS |
+| TCMSP | 0.591204 | 0.709745 | +0.118541 | +0.005624 | +0.468538 | +0.000000 | +0.000000 | PASS |
+| SymMap2.0 | 0.559741 | 0.658774 | +0.099033 | +0.024080 | +0.372052 | +0.000000 | +0.000000 | PASS |
+| ETCM2.0-mention10 | 0.555118 | 0.685350 | +0.130232 | +0.010399 | +0.510530 | +0.000000 | +0.000000 | PASS |
+
+四库 Macro-AUPR 平均提升 `+0.098421`，WC/CC 与 NoContext 精确一致；base 与
+head 哈希在评价前后保持不变。当前将其记为 **B 级外层四库单 unit 证据**：
+可以冻结为“支持状态感知的冻结上下文专家”候选机制，并支持其专门改善 CW
+状态的主张；尚不能按本文 A 级定义替代四库完整多折/重复 outer 证据，也不能
+宣称改善 target-cold 或 double-cold。
+
+完整协议、哈希和边界见 [SUPPORT_STATE_ROUTING](SUPPORT_STATE_ROUTING.md)。
+后续禁止针对本次 outer unit 修改路由或 head；若升级为最终核心贡献，只能在
+预先生成的新 outer units 上进行固定方法复验。

@@ -2,7 +2,7 @@
 
 ## 1. 决策
 
-截至 2026-07-29，不能将
+截至 2026-07-30，不能将
 
 ```text
 普通随机边：Hctx-P + CHCR
@@ -61,7 +61,6 @@ SCHE 的 cold 参数已经有效更新，CPU/GPU 结果一致，因此失败不�
 
 ```text
 H-C / P-D 双超图编码
-+ HPLGA 线性全局注意力候选
 + 候选级 Hctx-P
 + SDIS
 + Dot 解码器
@@ -94,20 +93,46 @@ warm-to-cold 蒸馏。
 完整证据见
 [支持掩码 Episodic 训练近邻工作审计](SUPPORT_MASKED_EPISODIC_AUDIT.md)。
 
-## 6. 投稿状态
+## 6. 投稿冻结状态
 
-在投稿定位冻结前：
+当前投稿定位已经冻结：
 
-* 不绘制最终 `Ours-full` 方法图；
+* 可以绘制最终单一 cold-start 方法图，但不得将 CHCR 画入主配置；
 * 不撰写“三项模型创新已经闭环”；
 * 不把 CHCR 与 SDIS 分别放进两个主场景后合称统一框架；
-* 可以继续整理数据、基线、案例和复现材料，但正式 Methods 只能写已冻结事实；
+* 正式 Methods 只写 `Hctx-P + SDIS + Dot` 及 Strict cold-start 协议；
 * 当前支持掩码候选已在创新性门槛停止，不能通过更名重新开放；
 * 当前可行的统一模型只有 `Hctx-P + SDIS`，第三项贡献优先由 Strict 四库
   cold-start benchmark 与 ETCM2.0 数据/证据闭环承担；
-* 第三项模型候选现限定为 HPLGA，它补回被删除的全局依赖能力，不再搜索同族门控；
-* HPLGA 只有通过无二次张量测试、四库 validation-only Gate 和统一 cold-start
-  Gate 后，才能进入最终 `Ours-full`。
+* HPLGA 已通过无二次张量 Gate 0，但四库 validation-only macro AUPR
+  `-0.001276`，仅 1/4 数据库提高，SymMap2.0 下降 `0.004159`，判定 No-Go；
+* 不运行 HPLGA 完整五折或 cold-start 组合，也不通过调 kernel、head、阻尼
+  或数据库特定设置挽救结果；
+* 当前不再开放第三个模型模块搜索。若坚持三项模型创新，需要重新提出独立研究
+  问题并重新做近邻工作审计，不能从已有 No-Go 路线中改名选择。
+* H-C/P-D 侧关系辅助重构已经完成近邻工作审计。NeoDTI 已使用关系特定投影联合
+  重构全部异构网络，并报告只重构 DTI 时 AUPR 下降 `5.5%`，因此该候选在
+  创新性门槛判定 No-Go；不执行 frozen representation probe 或训练 Pilot。
+* 四库 cold-start `NoContext -> Hctx-P -> Hctx-P + SDIS` 递进链条已完成，
+  不再继续挑选模块。
+
+该递进实验已于 2026-07-30 完成。Hctx-P 相对 NoContext 的四库 AUPR 增量为
+`+0.203622/+0.584248/+0.407087/+0.556348`，macro `+0.437826`，20/20
+folds 提高；SDIS 再提高 macro `+0.028024`。最终方法因此冻结为：
+
+```text
+H-C / P-D 双超图编码
++ 候选级 Hctx-P
++ zero-support SDIS
++ Dot decoder
+```
+
+论文主问题统一为具有 H-C 侧信息的 compound cold-start。CHCR 仅作为普通随机
+边协议的补充训练正则结果，不再与 SDIS 合称最终双场景框架。
 
 HPLGA 的公式、近邻工作边界和预注册停止条件见
 [HYPERGRAPH_PAGERANK_LINEAR_ATTENTION.md](HYPERGRAPH_PAGERANK_LINEAR_ATTENTION.md)。
+侧关系重构的直接近邻工作与停止理由见
+[SIDE_RELATION_RECONSTRUCTION_AUDIT.md](SIDE_RELATION_RECONSTRUCTION_AUDIT.md)。
+统一 cold-start 递进结果见
+[COLD_START_HCTX_ABLATION.md](COLD_START_HCTX_ABLATION.md)。
