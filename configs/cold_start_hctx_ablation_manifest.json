@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "protocol": "strict_compound_cold_start_no_dense_hctx_ablation_v1",
+  "reference_results": "results/batch_runs/sdis_full_20260718_212240/results.tsv",
+  "allowed_no_context_hctx_differences": [
+    "model.variant",
+    "context.interaction",
+    "context.herb_protein"
+  ],
+  "datasets": [
+    {
+      "name": "TCM-Suite",
+      "slug": "tcmsuite",
+      "no_context_config": "configs/HDCTI_tcmsuite_cold_start_no_context_no_dense_full.conf",
+      "no_context_sha256": "4c3cd6117e6134fac3de82cea8429c4fe3cbc124abab29b3f681b03a20e54dc3",
+      "hctx_config": "configs/HDCTI_tcmsuite_cold_start_no_dense_herb_only_full.conf",
+      "hctx_sha256": "696d8de71689faf0bad1789dbab00654a38027b9d5ad9eeb6766483364aa8aa2",
+      "sdis_config": "configs/HDCTI_tcmsuite_cold_start_sdis_full.conf",
+      "sdis_sha256": "889693379ec36ed4792e8f9e3682963a7c005ca4b9be55cab97e5af03f72a318"
+    },
+    {
+      "name": "TCMSP",
+      "slug": "tcmsp",
+      "no_context_config": "configs/HDCTI_tcmsp_cold_start_no_context_no_dense_full.conf",
+      "no_context_sha256": "a5b10779500e04c38481a171ec373eceb7b75d6f4dcb1c1698678b4e63563203",
+      "hctx_config": "configs/HDCTI_tcmsp_cold_start_no_dense_herb_only_full.conf",
+      "hctx_sha256": "7d0a9a2dc168a503efb4617f985c8dce963f97c4ecf1b509b8bed9bc66078573",
+      "sdis_config": "configs/HDCTI_tcmsp_cold_start_sdis_full.conf",
+      "sdis_sha256": "3b5015cab15df23078d62b5711ac2f50e6c02cb50b28591a3ec61823d0493370"
+    },
+    {
+      "name": "SymMap2.0",
+      "slug": "symmap",
+      "no_context_config": "configs/HDCTI_symmap_cold_start_no_context_no_dense_full.conf",
+      "no_context_sha256": "16e2f3bb290c20d6fc8e958203eda4dd02f3036a4cdf2e37a7eacf95eec199bc",
+      "hctx_config": "configs/HDCTI_symmap_cold_start_no_dense_herb_only_full.conf",
+      "hctx_sha256": "a618111404d20e0192377d5e974d737bfb823d42bef6ee24f61cb857aa25b0e8",
+      "sdis_config": "configs/HDCTI_symmap_cold_start_sdis_full.conf",
+      "sdis_sha256": "454fa441f4623d6afe02576cbf4794c7a49b1e795a0fe8e6dbeb6329c9d69914"
+    },
+    {
+      "name": "ETCM2.0 mention10",
+      "slug": "etcm_mention10",
+      "no_context_config": "configs/HDCTI_etcm_mention10_cold_start_no_context_no_dense_full.conf",
+      "no_context_sha256": "a1c359263da9c7df3f5f421a86b6206628a7a2ec446284f7a994fdc3f0ca4534",
+      "hctx_config": "configs/HDCTI_etcm_mention10_cold_start_no_dense_herb_only_full.conf",
+      "hctx_sha256": "954b4bdfc1cb8cc550e93718ec9c0058031c2077c36f846a7f16f85240da8489",
+      "sdis_config": "configs/HDCTI_etcm_mention10_cold_start_sdis_full.conf",
+      "sdis_sha256": "37feb7de61b4f58061f5c7e42b13bbc91d572441cbdd13e618956eda239576c4"
+    }
+  ]
+}
