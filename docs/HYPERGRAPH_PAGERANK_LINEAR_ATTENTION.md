@@ -15,7 +15,10 @@ ETCM2.0 上稳定训练。当前统一协议使用 `attention.max.nodes=0`，因
 
 第三项候选为 **Hypergraph PageRank-guided Linear Global Attention
 (HPLGA)**。目标是在不恢复 $N\times N$ 注意力矩阵的前提下，为 H-C 和 P-D
-两侧恢复全节点感受野，并将原先后乘的 PageRank 标量改为注意力信息源的结构先验。
+两侧恢复全节点感受野，并将 H-C/P-D 超图 PageRank 作为注意力信息源的结构先验。
+Gate 1 保留 Strict-HDCTI 原有的标量 PageRank，以保证候选与冻结基线只相差
+HPLGA 分支；只有候选通过后，才单独比较“保留标量 PageRank”与“由 HPLGA
+完全替代标量 PageRank”，避免一次改变两个变量。
 
 该模块与 Hctx-P、SDIS 的职责不同：
 
@@ -201,9 +204,9 @@ outer test=off
 ETCM 无 OOM、illegal-address 或 NaN
 ```
 
-### Gate 2：统一 cold-start 组合
+### Gate 2：统一 cold-start 组合（预注册，未执行）
 
-Gate 1 通过后，使用同一 HPLGA 参数配置运行：
+原定在 Gate 1 通过后，使用同一 HPLGA 参数配置运行：
 
 ```text
 HPLGA + Hctx-P + SDIS
@@ -211,10 +214,11 @@ HPLGA + Hctx-P + SDIS
 
 相对冻结 `Hctx-P + SDIS`，要求四库 compound cold-start macro AUPR 不下降，
 至少 3/4 数据库不下降，任一单库下降不超过 `0.005`。不重新搜索 SDIS gate。
+Gate 1 最终未通过，因此本阶段按协议取消。
 
-### Gate 3：论文消融
+### Gate 3：论文消融（预注册，未执行）
 
-最终至少报告：
+原定通过后至少报告：
 
 ```text
 Strict-HDCTI
@@ -226,16 +230,50 @@ Strict-HDCTI
 
 同时报告理论复杂度和 ETCM 峰值张量形状。无需为了 HPLGA 恢复原稠密注意力的
 完整 ETCM 训练；原注意力只在可运行的小数据集作为功能参考。
+Gate 1 最终未通过，因此 HPLGA 不进入论文主模型消融表。
 
-## 7. 当前判定
+## 7. Gate 1 结果
+
+四库固定 fold 1、inner-validation AUPR Pilot 已于 2026-07-29 完成。对照为
+相同 split、seed、早停、Dot decoder、`attention.max.nodes=0` 和 Hctx-P 的
+冻结 Pilot，不重复训练对照。
+
+| 数据集 | Hctx-P | Hctx-P + HPLGA | 增量 | 最佳 epoch | 用时 |
+|---|---:|---:|---:|---:|---:|
+| TCM-Suite | 0.992845 | 0.993293 | +0.000448 | 16 | 22 s |
+| TCMSP | 0.984166 | 0.982840 | -0.001326 | 40 | 43 s |
+| SymMap2.0 | 0.951155 | 0.946996 | -0.004159 | 16 | 33 s |
+| ETCM2.0 mention10 | 0.975974 | 0.975907 | -0.000067 | 16 | 96 s |
+| 四库 macro | 0.976035 | 0.974759 | -0.001276 | - | - |
+
+HPLGA 只在 TCM-Suite 提高，未达到“至少 3/4 数据库不下降”；macro 增量为负，
+且 SymMap2.0 的 `-0.004159` 超过预注册的最大单库下降 `0.002`。因此 Gate 1
+判定为 **No-Go**。
+
+四库两层残差尺度均明显偏离 0，例如 ETCM2.0 为
+`HC-L1=0.262229/HC-L2=-0.348564/PD-L1=-0.245606/PD-L2=0.108620`。
+这说明分支已参与训练，失败不能归因于零初始化导致模块未激活。
+
+结果来源：
+
+```text
+results/batch_runs/hplga_pilot_20260729_195506/results.tsv
+results/batch_runs/hplga_pilot_20260729_195506/summary.md
+```
+
+按照预注册协议，不运行 HPLGA 完整五折、Gate 2 cold-start 组合，也不搜索
+kernel、head 数、PageRank 阻尼、残差初值或数据库特定设置。
+
+## 8. 最终判定
 
 ```text
 问题必要性：Go
 数据适配：Go
-工程可行性：Conditional Go
-独立创新性：Conditional Go
-当前动作：先实现 Gate 0，不运行 outer test
+工程可行性：Go
+跨库有效性：No-Go
+论文模型创新：No-Go
+当前动作：保留实现与负结果，停止后续训练
 ```
 
-HPLGA 是第三项模型机制的候选，不是已经成立的创新。若 Gate 1 未通过，立即冻结
-为 No-Go，不通过调 kernel、head、阻尼或数据库特定设置挽救结果。
+HPLGA 证明了线性复杂度全局注意力能够稳定运行，但没有形成跨库预测增益，不能
+进入最终模型或作为第三项有效创新。

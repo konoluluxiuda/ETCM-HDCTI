@@ -484,6 +484,73 @@ def resolve_global_token_attention(config):
     }
 
 
+def resolve_hplga(config):
+    enabled = _config_bool(config, 'hplga.enabled', False)
+    mode = (
+        str(config['hplga.mode']).strip().lower()
+        if config.contains('hplga.mode')
+        else 'hypergraph_pagerank_linear'
+    )
+    kernel = (
+        str(config['hplga.kernel']).strip().lower()
+        if config.contains('hplga.kernel') else 'elu_plus_one'
+    )
+    hc_enabled = _config_bool(config, 'hplga.hc', True)
+    pd_enabled = _config_bool(config, 'hplga.pd', True)
+    head_count = (
+        int(config['hplga.heads'])
+        if config.contains('hplga.heads') else 2
+    )
+    pagerank_alpha = (
+        float(config['hplga.pagerank.alpha'])
+        if config.contains('hplga.pagerank.alpha') else 0.85
+    )
+    pagerank_max_iter = (
+        int(config['hplga.pagerank.max.iter'])
+        if config.contains('hplga.pagerank.max.iter') else 100
+    )
+    pagerank_tol = (
+        float(config['hplga.pagerank.tol'])
+        if config.contains('hplga.pagerank.tol') else 1e-8
+    )
+    epsilon = (
+        float(config['hplga.epsilon'])
+        if config.contains('hplga.epsilon') else 1e-6
+    )
+
+    if mode != 'hypergraph_pagerank_linear':
+        raise ValueError(
+            'hplga.mode must be hypergraph_pagerank_linear.'
+        )
+    if kernel != 'elu_plus_one':
+        raise ValueError('hplga.kernel must be elu_plus_one.')
+    if enabled and not (hc_enabled or pd_enabled):
+        raise ValueError('At least one of hplga.hc/pd must be enabled.')
+    if head_count <= 0:
+        raise ValueError('hplga.heads must be positive.')
+    if not 0.0 < pagerank_alpha < 1.0:
+        raise ValueError('hplga.pagerank.alpha must be between 0 and 1.')
+    if pagerank_max_iter <= 0:
+        raise ValueError('hplga.pagerank.max.iter must be positive.')
+    if pagerank_tol <= 0:
+        raise ValueError('hplga.pagerank.tol must be positive.')
+    if epsilon <= 0:
+        raise ValueError('hplga.epsilon must be positive.')
+
+    return {
+        'enabled': enabled,
+        'mode': mode,
+        'kernel': kernel,
+        'hc_enabled': enabled and hc_enabled,
+        'pd_enabled': enabled and pd_enabled,
+        'heads': head_count,
+        'pagerank_alpha': pagerank_alpha,
+        'pagerank_max_iter': pagerank_max_iter,
+        'pagerank_tol': pagerank_tol,
+        'epsilon': epsilon,
+    }
+
+
 def counterfactual_margin_values(
         factual_context_logits,
         counterfactual_context_logits,

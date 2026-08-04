@@ -31,6 +31,7 @@ from util.model_components import (
     resolve_early_stopping,
     resolve_encoder_profile,
     resolve_global_token_attention,
+    resolve_hplga,
     resolve_hyperedge_attention,
     resolve_herb_context_attention,
     resolve_inductive_context,
@@ -55,6 +56,11 @@ from util.hyperedge_attention import (
 from util.global_token_attention import (
     global_token_attention_complexity,
     summarize_global_token_attention,
+)
+from util.hplga import (
+    hplga_complexity,
+    hypergraph_pagerank,
+    pagerank_linear_attention_tf,
 )
 from sklearn.metrics import average_precision_score, roc_auc_score
 # tf.compat.v1.set_random_seed(4321)
@@ -301,6 +307,7 @@ class HDCTI(herbRecommender):
         )
         self.hyperedge_attention = resolve_hyperedge_attention(self.config)
         self.global_token_attention = resolve_global_token_attention(self.config)
+        self.hplga = resolve_hplga(self.config)
         self.inductive_context = resolve_inductive_context(self.config)
         self.pair_decoder = resolve_pair_decoder(self.config)
         if self.encoder_profile['external_baseline']:
@@ -323,6 +330,8 @@ class HDCTI(herbRecommender):
                 incompatible_components.append('hyperedge.attention')
             if self.global_token_attention['enabled']:
                 incompatible_components.append('global.token.attention')
+            if self.hplga['enabled']:
+                incompatible_components.append('hplga.enabled')
             if self.inductive_context['enabled']:
                 incompatible_components.append('inductive.context')
             if self.herb_context_attention['mode'] != 'static':
@@ -353,13 +362,15 @@ class HDCTI(herbRecommender):
                 ] else 'off',
             )
         )
-        if (
-            self.hyperedge_attention['enabled']
-            and self.global_token_attention['enabled']
-        ):
+        active_attention_encoders = sum([
+            int(self.hyperedge_attention['enabled']),
+            int(self.global_token_attention['enabled']),
+            int(self.hplga['enabled']),
+        ])
+        if active_attention_encoders > 1:
             raise ValueError(
-                'Global token attention and factorized hyperedge attention '
-                'cannot be enabled in the same experiment.'
+                'Factorized hyperedge attention, HILGA, and HPLGA are '
+                'mutually exclusive encoder variants.'
             )
         if self.support_router['enabled']:
             if getattr(self.data, 'protocol', 'legacy') != 'strict':
@@ -560,6 +571,31 @@ class HDCTI(herbRecommender):
                     self.global_token_attention['tokens'],
                     self.global_token_attention['heads'],
                     self.global_token_attention['temperature'],
+                )
+            )
+        if self.hplga['enabled']:
+            if self.emb_size % self.hplga['heads'] != 0:
+                raise ValueError(
+                    'num.factors must be divisible by hplga.heads.'
+                )
+            if (
+                not self.config.contains('attention.max.nodes')
+                or int(self.config['attention.max.nodes']) != 0
+            ):
+                raise ValueError(
+                    'HPLGA replaces dense full-node attention; set '
+                    'attention.max.nodes=0.'
+                )
+            print(
+                'HPLGA: H-C=%s P-D=%s heads=%d PageRank(alpha=%g, '
+                'max_iter=%d, tol=%g) kernel=%s.' % (
+                    'on' if self.hplga['hc_enabled'] else 'off',
+                    'on' if self.hplga['pd_enabled'] else 'off',
+                    self.hplga['heads'],
+                    self.hplga['pagerank_alpha'],
+                    self.hplga['pagerank_max_iter'],
+                    self.hplga['pagerank_tol'],
+                    self.hplga['kernel'],
                 )
             )
 
@@ -798,11 +834,17 @@ class HDCTI(herbRecommender):
         ) or (
             self.global_token_attention['pd_enabled']
             and use_protein_full_attention
+        ) or (
+            self.hplga['hc_enabled']
+            and use_compound_full_attention
+        ) or (
+            self.hplga['pd_enabled']
+            and use_protein_full_attention
         )
         if global_attention_conflicts:
             raise ValueError(
-                'HILGA replaces dense full-node attention; set '
-                'attention.max.nodes=0 for HILGA experiments.'
+                'HILGA/HPLGA replaces dense full-node attention; set '
+                'attention.max.nodes=0.'
             )
         if not self.encoder_profile['use_dense_full_attention']:
             print('Dense full-node self-attention disabled by encoder profile.')
@@ -848,6 +890,33 @@ class HDCTI(herbRecommender):
         else:
             print('PageRank weighting disabled by encoder profile.')
 
+        self.hplga_pagerank_diagnostics = {}
+        hplga_priors = {}
+        if self.hplga['hc_enabled']:
+            hplga_priors['hc'], self.hplga_pagerank_diagnostics['hc'] = (
+                hypergraph_pagerank(
+                    H_c,
+                    alpha=self.hplga['pagerank_alpha'],
+                    max_iter=self.hplga['pagerank_max_iter'],
+                    tol=self.hplga['pagerank_tol'],
+                )
+            )
+        if self.hplga['pd_enabled']:
+            hplga_priors['pd'], self.hplga_pagerank_diagnostics['pd'] = (
+                hypergraph_pagerank(
+                    pd,
+                    alpha=self.hplga['pagerank_alpha'],
+                    max_iter=self.hplga['pagerank_max_iter'],
+                    tol=self.hplga['pagerank_tol'],
+                )
+            )
+        hplga_prior_tensors = {
+            side: tf.constant(
+                prior, dtype=tf.float32, name=side + '_hplga_pagerank'
+            )
+            for side, prior in hplga_priors.items()
+        }
+
 
         initializer = tf.variance_scaling_initializer(scale=2.0)
 
@@ -870,7 +939,10 @@ class HDCTI(herbRecommender):
                 # Keep the historical HDCTI variable graph unchanged even
                 # when attention.max.nodes disables execution. The frozen
                 # external baseline removes these variables entirely.
-                if self.encoder_profile['use_dense_full_attention']:
+                if (
+                    self.encoder_profile['use_dense_full_attention']
+                    and not self.hplga['enabled']
+                ):
                     self.attention_weights['compound_q_%d_%d' % (i + 1, h)] = tf.Variable(
                         initializer([self.emb_size, head_dim]), name='compound_q_%d_%d' % (i + 1, h))
                     self.attention_weights['compound_k_%d_%d' % (i + 1, h)] = tf.Variable(
@@ -996,6 +1068,30 @@ class HDCTI(herbRecommender):
                         )
                     self.weights['%s_gamma_%d' % (prefix, layer)] = tf.Variable(
                         tf.zeros([1]), name='%s_gamma_%d' % (prefix, layer)
+                    )
+
+        self.hplga_diagnostic_tensors = {}
+        if self.hplga['enabled']:
+            for side in ('hc', 'pd'):
+                if not self.hplga[side + '_enabled']:
+                    continue
+                self.hplga_diagnostic_tensors[side] = []
+                for layer in range(1, self.n_layer + 1):
+                    prefix = '%s_hplga' % side
+                    for projection in ('q', 'k', 'v', 'output'):
+                        self.weights['%s_%s_%d' % (
+                            prefix, projection, layer
+                        )] = tf.Variable(
+                            initializer([self.emb_size, self.emb_size]),
+                            name='%s_%s_%d' % (
+                                prefix, projection, layer
+                            ),
+                        )
+                    self.weights['%s_gamma_%d' % (prefix, layer)] = (
+                        tf.Variable(
+                            tf.zeros([1]),
+                            name='%s_gamma_%d' % (prefix, layer),
+                        )
                     )
 
         def multi_head_attention_compound(embeddings, attention_weights, num_heads, head_dim):
@@ -1189,6 +1285,29 @@ class HDCTI(herbRecommender):
                 name='%s_residual_layer_%d' % (prefix, layer),
             )
 
+        def apply_hplga(node_embeddings, side, layer):
+            prefix = '%s_hplga' % side
+            attention_parameters = {
+                projection: self.weights['%s_%s_%d' % (
+                    prefix, projection, layer
+                )]
+                for projection in ('q', 'k', 'v', 'output')
+            }
+            attention_parameters['gamma'] = self.weights[
+                '%s_gamma_%d' % (prefix, layer)
+            ]
+            output, diagnostics = pagerank_linear_attention_tf(
+                tf,
+                node_embeddings,
+                hplga_prior_tensors[side],
+                attention_parameters,
+                self.hplga['heads'],
+                self.hplga['epsilon'],
+                '%s_layer_%d' % (prefix, layer),
+            )
+            self.hplga_diagnostic_tensors[side].append(diagnostics)
+            return output
+
         hc_attention_edge_ids_tf = tf.constant(
             hc_attention_ids['forward_edge_ids'], dtype=tf.int64
         )
@@ -1348,6 +1467,10 @@ class HDCTI(herbRecommender):
                                                             head_dim)
             new_compound_embeddings = tf.nn.leaky_relu(
                 tf.matmul(new_compound_embeddings, self.weights['layer_%d' % (i + 1)]) + compound_embeddings)
+            if self.hplga['hc_enabled']:
+                new_compound_embeddings = apply_hplga(
+                    new_compound_embeddings, 'hc', i + 1
+                )
             if self.global_token_attention['hc_enabled']:
                 new_compound_embeddings = hyperedge_induced_global_attention(
                     new_compound_embeddings,
@@ -1362,6 +1485,10 @@ class HDCTI(herbRecommender):
                                                           head_dim)
             new_protein_embeddings = tf.nn.leaky_relu(
                 tf.matmul(new_protein_embeddings, self.weights['layer_1_%d' % (i + 1)]) + protein_embeddings)
+            if self.hplga['pd_enabled']:
+                new_protein_embeddings = apply_hplga(
+                    new_protein_embeddings, 'pd', i + 1
+                )
             if self.global_token_attention['pd_enabled']:
                 new_protein_embeddings = hyperedge_induced_global_attention(
                     new_protein_embeddings,
@@ -2467,6 +2594,67 @@ class HDCTI(herbRecommender):
                 )
                 handle.write('\n')
             print('HILGA metadata: %s' % global_attention_path)
+        self.hplga_summary = None
+        if self.hplga['enabled']:
+            layer_summaries = {}
+            structure = {}
+            for side, node_key in (('hc', 'nodes'), ('pd', 'nodes')):
+                if not self.hplga[side + '_enabled']:
+                    continue
+                layer_summaries[side] = []
+                for layer in range(1, self.n_layer + 1):
+                    raw_gamma = float(np.asarray(self.weight[
+                        '%s_hplga_gamma_%d' % (side, layer)
+                    ]).reshape(-1)[0])
+                    layer_summaries[side].append({
+                        'layer': layer,
+                        'raw_residual_scale': raw_gamma,
+                        'residual_scale': float(np.tanh(raw_gamma)),
+                    })
+                side_structure = dict(
+                    self.hyperedge_attention_structure[side]
+                )
+                side_structure.update(hplga_complexity(
+                    side_structure[node_key],
+                    self.emb_size,
+                    self.hplga['heads'],
+                ))
+                structure[side] = side_structure
+            self.hplga_summary = {
+                'mode': self.hplga['mode'],
+                'kernel': self.hplga['kernel'],
+                'hc_enabled': self.hplga['hc_enabled'],
+                'pd_enabled': self.hplga['pd_enabled'],
+                'heads': self.hplga['heads'],
+                'epsilon': self.hplga['epsilon'],
+                'pagerank': {
+                    'alpha': self.hplga['pagerank_alpha'],
+                    'max_iter': self.hplga['pagerank_max_iter'],
+                    'tol': self.hplga['pagerank_tol'],
+                    'diagnostics': self.hplga_pagerank_diagnostics,
+                },
+                'structure': structure,
+                'layers': layer_summaries,
+            }
+            print(
+                'HPLGA residual scales: %s' % ', '.join(
+                    '%s-L%d=%.6f' % (
+                        side.upper(), row['layer'], row['residual_scale']
+                    )
+                    for side, rows in layer_summaries.items()
+                    for row in rows
+                )
+            )
+            hplga_path = os.path.join(model_dir, 'hplga.json')
+            with open(hplga_path, 'w', encoding='utf-8') as handle:
+                json.dump(
+                    self.hplga_summary,
+                    handle,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                handle.write('\n')
+            print('HPLGA metadata: %s' % hplga_path)
         self.hyperedge_attention_summary = None
         if self.hyperedge_attention['enabled']:
             parameter_summary = {}
