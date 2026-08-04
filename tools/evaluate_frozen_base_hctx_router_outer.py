@@ -29,6 +29,12 @@ from tools.train_frozen_base_hctx_router import (  # noqa: E402
 )
 
 
+SINGLE_UNIT_PROTOCOL = 'frozen_base_hctx_router_outer_evaluation_v3'
+REPEATED_UNIT_PROTOCOL = (
+    'frozen_base_hctx_router_repeated_outer_evaluation_v1'
+)
+
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--manifest', required=True)
@@ -123,28 +129,74 @@ def main():
     args = parse_args()
     manifest_path = resolve_path(args.manifest)
     manifest = load_json(manifest_path)
-    if manifest.get('protocol') != (
-            'frozen_base_hctx_router_outer_evaluation_v3'):
+    protocol = manifest.get('protocol')
+    if protocol not in (SINGLE_UNIT_PROTOCOL, REPEATED_UNIT_PROTOCOL):
         raise ValueError('Unexpected outer-evaluation manifest protocol.')
     if args.dataset not in manifest['datasets']:
         raise ValueError('Dataset is absent from manifest: %s' % args.dataset)
     spec = manifest['datasets'][args.dataset]
 
-    parent_manifest_path = resolve_path(manifest['parent_gate_manifest'])
-    parent_summary_path = resolve_path(manifest['parent_gate_summary'])
-    verify_file(
-        parent_manifest_path,
-        manifest['parent_gate_manifest_sha256'],
-        'Parent Gate manifest',
-    )
-    verify_file(
-        parent_summary_path,
-        manifest['parent_gate_summary_sha256'],
-        'Parent Gate summary',
-    )
-    parent_summary = load_json(parent_summary_path)
-    if not parent_summary.get('all_passed'):
-        raise ValueError('Parent four-dataset Gate did not pass.')
+    if protocol == SINGLE_UNIT_PROTOCOL:
+        parent_manifest_path = resolve_path(
+            manifest['parent_gate_manifest']
+        )
+        parent_summary_path = resolve_path(
+            manifest['parent_gate_summary']
+        )
+        verify_file(
+            parent_manifest_path,
+            manifest['parent_gate_manifest_sha256'],
+            'Parent Gate manifest',
+        )
+        verify_file(
+            parent_summary_path,
+            manifest['parent_gate_summary_sha256'],
+            'Parent Gate summary',
+        )
+        parent_summary = load_json(parent_summary_path)
+        if not parent_summary.get('all_passed'):
+            raise ValueError('Parent four-dataset Gate did not pass.')
+        expected_training_manifest_hash = manifest[
+            'parent_gate_manifest_sha256'
+        ]
+        require_inner_gate_pass = True
+    else:
+        prepared_manifest_path = resolve_path(
+            manifest['prepared_units_manifest']
+        )
+        head_manifest_path = resolve_path(
+            manifest['head_training_manifest']
+        )
+        verify_file(
+            prepared_manifest_path,
+            manifest['prepared_units_manifest_sha256'],
+            'Prepared repeated-unit manifest',
+        )
+        verify_file(
+            head_manifest_path,
+            manifest['head_training_manifest_sha256'],
+            'Frozen head-training manifest',
+        )
+        prepared = load_json(prepared_manifest_path)
+        prepared_jobs = {
+            row['job_key']: row for row in prepared['jobs']
+        }
+        job_key = spec['job_key']
+        if job_key not in prepared_jobs:
+            raise ValueError('Repeated outer job is not preregistered.')
+        prepared_job = prepared_jobs[job_key]
+        for name in ('dataset', 'compound_group', 'protein_group'):
+            if prepared_job[name] != spec[name]:
+                raise ValueError(
+                    'Repeated outer job metadata mismatch: %s.' % name
+                )
+        if prepared_job['assignments_sha256'] != spec[
+                'assignments_sha256']:
+            raise ValueError('Repeated outer assignment hash mismatch.')
+        expected_training_manifest_hash = manifest[
+            'head_training_manifest_sha256'
+        ]
+        require_inner_gate_pass = False
 
     training_report_path = resolve_path(spec['training_report'])
     head_path = resolve_path(spec['head'])
@@ -160,13 +212,17 @@ def main():
     if training_report.get('protocol') != (
             'frozen_base_hctx_router_pilot_v3'):
         raise ValueError('Unexpected training report protocol.')
-    if not training_report['comparison']['passed']:
+    if (
+            require_inner_gate_pass
+            and not training_report['comparison']['passed']):
         raise ValueError('Training report did not pass its inner Gate.')
     if not all(training_report['preservation_checks'].values()):
         raise ValueError('Training report failed a preservation check.')
     if training_report['manifest']['sha256'] != (
-            manifest['parent_gate_manifest_sha256']):
-        raise ValueError('Training report did not use the parent Gate manifest.')
+            expected_training_manifest_hash):
+        raise ValueError(
+            'Training report did not use the frozen head manifest.'
+        )
 
     config_path = resolve_path(training_report['config']['path'])
     checkpoint = normalize_checkpoint(
@@ -225,8 +281,14 @@ def main():
     report = {
         'created_at': datetime.now().astimezone().isoformat(),
         'evaluation': 'frozen_base_hctx_router_outer_pure_inference',
-        'protocol': manifest['protocol'],
+        'protocol': protocol,
         'dataset': spec['display_name'],
+        'job': {
+            'key': spec.get('job_key', args.dataset),
+            'dataset': spec.get('dataset', args.dataset),
+            'compound_group': spec.get('compound_group'),
+            'protein_group': spec.get('protein_group'),
+        },
         'manifest': {
             'path': str(manifest_path),
             'sha256': sha256_file(manifest_path),

@@ -345,6 +345,13 @@ def main():
     if sha256_file(Path(str(checkpoint) + '.index')) != (
             dataset_spec['checkpoint_index_sha256']):
         raise ValueError('Current checkpoint index hash differs from manifest.')
+    expected_checkpoint_files = dataset_spec.get('checkpoint_files')
+    if (
+            expected_checkpoint_files is not None
+            and checkpoint_hashes(checkpoint) != expected_checkpoint_files):
+        raise ValueError(
+            'Current checkpoint files differ from the frozen manifest.'
+        )
     if baseline_report['support_unit']['assignments_sha256'] != (
             dataset_spec['assignments_sha256']):
         raise ValueError('Manifest and baseline support assignments differ.')
