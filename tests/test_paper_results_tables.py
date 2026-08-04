@@ -44,7 +44,7 @@ class PaperResultsTablesTest(unittest.TestCase):
     def test_builds_both_protocol_tables_and_boundaries(self):
         datasets = ['D1', 'D2', 'D3', 'D4']
         random_methods = ['Strict', 'Hctx', 'CHCR']
-        cold_methods = ['Hctx', 'SDIS']
+        cold_methods = ['Strict', 'Hctx', 'SDIS']
         manifest = {
             'datasets': datasets,
             'random_edge': {
@@ -58,7 +58,11 @@ class PaperResultsTablesTest(unittest.TestCase):
                 ]
             },
             'compound_cold_start': {
-                'methods': [{'method': method} for method in cold_methods]
+                'methods': [
+                    {'method': 'Strict', 'calibrated': False},
+                    {'method': 'Hctx'},
+                    {'method': 'SDIS'},
+                ]
             },
         }
         random_rows = [
@@ -74,7 +78,7 @@ class PaperResultsTablesTest(unittest.TestCase):
         calibrated_rows = [
             record(dataset, method, 0.75 + index * 0.02, threshold=True)
             for dataset in datasets
-            for index, method in enumerate(cold_methods)
+            for index, method in enumerate(('Hctx', 'SDIS'))
         ]
         external_rows = [
             record(dataset, method, 0.78 + index * 0.01)
@@ -98,8 +102,9 @@ class PaperResultsTablesTest(unittest.TestCase):
         self.assertIn('HGT', markdown)
         self.assertIn('4 种外部方法', markdown)
         self.assertIn('Compound cold-start 五折', markdown)
+        self.assertIn('Compound cold-start Hctx-P 直接消融', markdown)
         self.assertIn('**+0.010000**', markdown)
-        self.assertIn('NoContext 完整五折尚不存在', markdown)
+        self.assertNotIn('NoContext 完整五折尚不存在', markdown)
 
     def test_generator_can_start_as_direct_script(self):
         repository_root = Path(__file__).resolve().parents[1]

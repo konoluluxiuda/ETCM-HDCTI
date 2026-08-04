@@ -77,11 +77,18 @@
     ]
   },
   "compound_cold_start": {
+    "no_context_results": "results/batch_runs/cold_start_hctx_ablation_20260730_133133/results.tsv",
+    "no_context_sha256": "2fec5c8fbc21aa6d3f4607f5a74d1e1976f7be35e05f2f2dd9241bccbd7f2183",
     "fixed_results": "results/batch_runs/sdis_full_20260718_212240/results.tsv",
     "fixed_sha256": "7ff2251f39d50a339f86ad03a86a27035979800432aafbb2e64329f3f75b93b0",
     "calibrated_results": "results/batch_runs/sdis_full_20260718_212240/calibration/results.tsv",
     "calibrated_sha256": "416d9182fcbe04938665acc8bcf404c75323f70a038390b829b872a06bb3b931",
     "methods": [
+      {
+        "method": "Strict-HDCTI",
+        "variant": "NoContext",
+        "calibrated": false
+      },
       {
         "method": "Strict-HDCTI + Hctx-P",
         "variant": "HerbOnly"

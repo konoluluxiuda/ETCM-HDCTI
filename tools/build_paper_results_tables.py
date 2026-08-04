@@ -156,12 +156,17 @@ def validate_config(row, strategy, variant):
         if actual != expected_switches[variant]:
             raise ValueError('Unexpected random-edge switches in %s.' % config_path)
     else:
-        expected_inductive = {'HerbOnly': 'False', 'SDIS': 'True'}
-        if config.get('context.interaction') != 'True':
-            raise ValueError('Cold-start rows must enable context interaction.')
-        if config.get('context.herb_protein') != 'True':
-            raise ValueError('Cold-start rows must enable Hctx-P.')
-        if config.get('inductive.context') != expected_inductive[variant]:
+        expected_switches = {
+            'NoContext': ('False', 'False', 'False'),
+            'HerbOnly': ('True', 'True', 'False'),
+            'SDIS': ('True', 'True', 'True'),
+        }
+        actual = (
+            config.get('context.interaction'),
+            config.get('context.herb_protein'),
+            config.get('inductive.context'),
+        )
+        if actual != expected_switches[variant]:
             raise ValueError('Unexpected SDIS switch in %s.' % config_path)
     return config_path
 
@@ -262,27 +267,44 @@ def collect_external(manifest):
 def collect_cold_start(manifest):
     section = manifest['compound_cold_start']
     fixed_path = check_file(section['fixed_results'], section['fixed_sha256'])
+    no_context_path = check_file(
+        section['no_context_results'],
+        section['no_context_sha256'],
+    )
     calibrated_path = check_file(
         section['calibrated_results'], section['calibrated_sha256']
     )
     fixed_rows = read_tsv(fixed_path)
+    no_context_rows = read_tsv(no_context_path)
     calibrated_rows = read_tsv(calibrated_path)
     fixed = []
     calibrated = []
     for method in section['methods']:
+        method_path = (
+            no_context_path
+            if method['variant'] == 'NoContext'
+            else fixed_path
+        )
+        method_rows = (
+            no_context_rows
+            if method['variant'] == 'NoContext'
+            else fixed_rows
+        )
         for dataset in manifest['datasets']:
-            row = unique_row(fixed_rows, dataset, method['variant'])
+            row = unique_row(method_rows, dataset, method['variant'])
             config_path = validate_config(
                 row, 'compound_cold_start', method['variant']
             )
             fixed_record = dict(
                 protocol='compound_cold_start', dataset=dataset,
                 method=method['method'], variant=method['variant'],
-                source=str(fixed_path), config=str(config_path),
+                source=str(method_path), config=str(config_path),
                 **metric_record(row)
             )
             fixed.append(fixed_record)
 
+            if not method.get('calibrated', True):
+                continue
             calibration = unique_row(
                 calibrated_rows, dataset, method['variant']
             )
@@ -384,6 +406,11 @@ def build_markdown(
     cold_methods = [
         item['method'] for item in manifest['compound_cold_start']['methods']
     ]
+    calibrated_methods = [
+        item['method']
+        for item in manifest['compound_cold_start']['methods']
+        if item.get('calibrated', True)
+    ]
     external_rows = external_rows or []
     external_methods = [
         item['method']
@@ -456,22 +483,29 @@ def build_markdown(
     section += 1
     lines.extend([''])
     lines.extend(delta_table(
-        '%d. Compound cold-start SDIS 增量（固定阈值 0.5）' % section,
+        '%d. Compound cold-start Hctx-P 直接消融' % section,
         cold_rows,
         cold_methods[0], cold_methods[1], datasets,
     ))
     section += 1
     lines.extend([''])
+    lines.extend(delta_table(
+        '%d. Compound cold-start SDIS 增量（固定阈值 0.5）' % section,
+        cold_rows,
+        cold_methods[1], cold_methods[2], datasets,
+    ))
+    section += 1
+    lines.extend([''])
     lines.extend(metric_table(
         '%d. Compound cold-start（inner-validation 阈值）' % section,
-        calibrated_rows, cold_methods, datasets, calibrated=True,
+        calibrated_rows, calibrated_methods, datasets, calibrated=True,
     ))
     section += 1
     lines.extend([''])
     lines.extend(delta_table(
         '%d. Compound cold-start SDIS 校准指标增量' % section,
         calibrated_rows,
-        cold_methods[0], cold_methods[1], datasets,
+        calibrated_methods[0], calibrated_methods[1], datasets,
     ))
     section += 1
     lines.extend([
@@ -488,10 +522,11 @@ def build_markdown(
         '四库全部最优。',
         '- Cold-start 主配置为 `Hctx-P + SDIS`；AUC/AUPR 与阈值无关。',
         '- Cold-start 固定 `0.5` 阈值与 inner-validation 阈值必须同时报告。',
-        '- 四库统一无稠密注意力的 cold-start NoContext 完整五折尚不存在，'
-        '因此本表不使用旧 attention 口径或单折 Pilot 填充该行。',
-        '- TCM-Suite 上 Hctx-P 相对 Strict-HDCTI AUPR 轻微下降，不能声称'
-        ' Hctx-P 在四库全部提高。',
+        '- Compound cold-start 下 Hctx-P 相对 NoContext 的四库 AUPR 增量'
+        '均为正，macro 增量为 `+0.437826`；该结果只适用于具有 H-C 侧信息'
+        '的 compound cold-start。',
+        '- NoContext 未执行事后阈值校准；其固定 `0.5` 分类指标仅用于完整披露，'
+        '不与已校准的 Hctx-P/SDIS 分类指标混合比较。',
         '',
         '## %d. 冻结来源' % (section + 1),
         '',

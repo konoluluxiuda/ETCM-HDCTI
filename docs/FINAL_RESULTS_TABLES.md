@@ -81,16 +81,30 @@
 
 | 数据集 | 方法 | AUC | AUPR | Recall | Precision | F1-score |
 |---|---|---:|---:|---:|---:|---:|
+| TCM-Suite | Strict-HDCTI | 0.398817 (±0.019978) | 0.440040 (±0.012643) | 0.011724 (±0.014231) | 0.441702 (±0.101074) | 0.022346 (±0.026972) |
 | TCM-Suite | Strict-HDCTI + Hctx-P | 0.639919 (±0.027578) | 0.643662 (±0.024614) | 0.476196 (±0.072566) | 0.641446 (±0.043319) | 0.541989 (±0.039202) |
 | TCM-Suite | Strict-HDCTI + Hctx-P + SDIS | 0.721851 (±0.009130) | 0.702967 (±0.017793) | 0.178319 (±0.017241) | 0.775422 (±0.037785) | 0.289415 (±0.021885) |
+| TCMSP | Strict-HDCTI | 0.085413 (±0.007242) | 0.334094 (±0.008310) | 0.023725 (±0.007278) | 0.332723 (±0.120906) | 0.044001 (±0.013376) |
 | TCMSP | Strict-HDCTI + Hctx-P | 0.922903 (±0.022532) | 0.918342 (±0.021979) | 0.446080 (±0.078846) | 0.953149 (±0.019664) | 0.603776 (±0.066786) |
 | TCMSP | Strict-HDCTI + Hctx-P + SDIS | 0.947252 (±0.005086) | 0.941233 (±0.002861) | 0.360789 (±0.279984) | 0.964839 (±0.013182) | 0.475087 (±0.293712) |
+| SymMap2.0 | Strict-HDCTI | 0.302297 (±0.018698) | 0.390552 (±0.011010) | 0.003290 (±0.005643) | 0.339741 (±0.271726) | 0.006482 (±0.011095) |
 | SymMap2.0 | Strict-HDCTI + Hctx-P | 0.783910 (±0.013433) | 0.797639 (±0.010910) | 0.690557 (±0.023295) | 0.739850 (±0.023475) | 0.713885 (±0.011208) |
 | SymMap2.0 | Strict-HDCTI + Hctx-P + SDIS | 0.807888 (±0.012536) | 0.809854 (±0.012380) | 0.406044 (±0.036231) | 0.873108 (±0.011771) | 0.553425 (±0.032592) |
+| ETCM2.0 mention10 | Strict-HDCTI | 0.112578 (±0.003128) | 0.324931 (±0.001234) | 0.078309 (±0.030564) | 0.108495 (±0.018257) | 0.090025 (±0.027271) |
 | ETCM2.0 mention10 | Strict-HDCTI + Hctx-P | 0.891241 (±0.012750) | 0.881279 (±0.017219) | 0.431319 (±0.031499) | 0.923382 (±0.019416) | 0.587135 (±0.025001) |
 | ETCM2.0 mention10 | Strict-HDCTI + Hctx-P + SDIS | 0.916521 (±0.003838) | 0.898965 (±0.006037) | 0.265234 (±0.069803) | 0.944127 (±0.007135) | 0.410331 (±0.084044) |
 
-## 7. Compound cold-start SDIS 增量（固定阈值 0.5）
+## 7. Compound cold-start Hctx-P 直接消融
+
+| 数据集 | AUC delta | AUPR delta | Recall delta | Precision delta | F1 delta |
+|---|---:|---:|---:|---:|---:|
+| TCM-Suite | +0.241102 | +0.203622 | +0.464472 | +0.199744 | +0.519643 |
+| TCMSP | +0.837490 | +0.584248 | +0.422355 | +0.620426 | +0.559775 |
+| SymMap2.0 | +0.481613 | +0.407087 | +0.687267 | +0.400109 | +0.707403 |
+| ETCM2.0 mention10 | +0.778663 | +0.556348 | +0.353010 | +0.814887 | +0.497110 |
+| **Macro** | **+0.584717** | **+0.437826** | **+0.481776** | **+0.508792** | **+0.570983** |
+
+## 8. Compound cold-start SDIS 增量（固定阈值 0.5）
 
 | 数据集 | AUC delta | AUPR delta | Recall delta | Precision delta | F1 delta |
 |---|---:|---:|---:|---:|---:|
@@ -100,7 +114,7 @@
 | ETCM2.0 mention10 | +0.025280 | +0.017686 | -0.166085 | +0.020745 | -0.176804 |
 | **Macro** | **+0.038885** | **+0.028024** | **-0.208442** | **+0.074917** | **-0.179632** |
 
-## 8. Compound cold-start（inner-validation 阈值）
+## 9. Compound cold-start（inner-validation 阈值）
 
 | 数据集 | 方法 | AUC | AUPR | Recall | Precision | F1-score | 阈值 |
 |---|---|---:|---:|---:|---:|---:|---:|
@@ -113,7 +127,7 @@
 | ETCM2.0 mention10 | Strict-HDCTI + Hctx-P | 0.891241 (±0.012750) | 0.881279 (±0.017219) | 0.861214 (±0.019006) | 0.792848 (±0.022959) | 0.825268 (±0.010356) | 0.038059 (±0.063762) |
 | ETCM2.0 mention10 | Strict-HDCTI + Hctx-P + SDIS | 0.916521 (±0.003838) | 0.898965 (±0.006037) | 0.900013 (±0.019054) | 0.807543 (±0.015000) | 0.851010 (±0.002190) | 0.043567 (±0.028869) |
 
-## 9. Compound cold-start SDIS 校准指标增量
+## 10. Compound cold-start SDIS 校准指标增量
 
 | 数据集 | AUC delta | AUPR delta | Recall delta | Precision delta | F1 delta |
 |---|---:|---:|---:|---:|---:|
@@ -123,7 +137,7 @@
 | ETCM2.0 mention10 | +0.025281 | +0.017686 | +0.038799 | +0.014695 | +0.025742 |
 | **Macro** | **+0.038885** | **+0.028024** | **-0.000119** | **+0.046988** | **+0.029535** |
 
-## 10. 解释边界
+## 11. 解释边界
 
 - 随机边主配置为 `Hctx-P + CHCR`；CHCR 不进入 cold-start 主配置。
 - 4 种外部方法是共享匿名拓扑输入和 BCE 监督的适配基线，不是原论文属性模型的原样复现。
@@ -131,14 +145,15 @@
 - 最终随机边模型相对 R-GCN-CTI 在 SymMap2.0 和 ETCM2.0 mention10 取得更高 AUPR，在 TCMSP 基本持平，在 TCM-Suite 略低；不能声称四库全部最优。
 - Cold-start 主配置为 `Hctx-P + SDIS`；AUC/AUPR 与阈值无关。
 - Cold-start 固定 `0.5` 阈值与 inner-validation 阈值必须同时报告。
-- 四库统一无稠密注意力的 cold-start NoContext 完整五折尚不存在，因此本表不使用旧 attention 口径或单折 Pilot 填充该行。
-- TCM-Suite 上 Hctx-P 相对 Strict-HDCTI AUPR 轻微下降，不能声称 Hctx-P 在四库全部提高。
+- Compound cold-start 下 Hctx-P 相对 NoContext 的四库 AUPR 增量均为正，macro 增量为 `+0.437826`；该结果只适用于具有 H-C 侧信息的 compound cold-start。
+- NoContext 未执行事后阈值校准；其固定 `0.5` 分类指标仅用于完整披露，不与已校准的 Hctx-P/SDIS 分类指标混合比较。
 
-## 11. 冻结来源
+## 12. 冻结来源
 
 - `/home/zry/workspace/HDCTI/results/batch_runs/no_dense_hctx_ablation_20260722_164221/results.tsv`
 - `/home/zry/workspace/HDCTI/results/batch_runs/no_dense_chcr_full_20260717_171403/results.tsv`
 - `/home/zry/workspace/HDCTI/results/batch_runs/external_baselines_full_20260728_152020/results.tsv`
 - `/home/zry/workspace/HDCTI/results/batch_runs/hgt_cti_full_20260728_181436/results.tsv`
+- `/home/zry/workspace/HDCTI/results/batch_runs/cold_start_hctx_ablation_20260730_133133/results.tsv`
 - `/home/zry/workspace/HDCTI/results/batch_runs/sdis_full_20260718_212240/results.tsv`
 - `/home/zry/workspace/HDCTI/results/batch_runs/sdis_full_20260718_212240/calibration/results.tsv`
