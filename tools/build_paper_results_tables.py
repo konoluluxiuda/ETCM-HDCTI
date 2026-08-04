@@ -60,6 +60,12 @@ def format_summary(mean, std):
     return '%.6f (±%.6f)' % (mean, std)
 
 
+def format_signed_summary(mean, std):
+    if std is None:
+        return '%+.6f' % mean
+    return '%+.6f (±%.6f)' % (mean, std)
+
+
 def check_file(path, expected_hash):
     path = repository_path(path)
     if not path.is_file():
@@ -344,6 +350,32 @@ def collect_cold_start(manifest):
     return fixed, calibrated
 
 
+def collect_support_state_five_unit(manifest):
+    section = manifest.get('support_state_five_unit')
+    if not section:
+        return None
+    path = check_file(section['summary'], section['sha256'])
+    summary = json.loads(path.read_text(encoding='utf-8'))
+    if summary.get('protocol') != (
+            'frozen_base_hctx_router_five_unit_descriptive_v1'):
+        raise ValueError('Unexpected support-state summary protocol.')
+    if summary.get('analysis_role') != section['role']:
+        raise ValueError('Support-state summary role changed.')
+    if summary.get('dataset_count') != 4 or summary.get('unit_count') != 20:
+        raise ValueError('Support-state summary must contain 4 x 5 units.')
+    if summary.get('positive_macro_units') != 20:
+        raise ValueError('Support-state summary no longer has 20/20 positives.')
+    for row in summary['datasets']:
+        if row['units'] != 5 or row['positive_macro_units'] != 5:
+            raise ValueError('Support-state dataset is incomplete.')
+        if row['delta']['warm_cold']['mean'] != 0.0:
+            raise ValueError('Support-state WC preservation changed.')
+        if row['delta']['cold_cold']['mean'] != 0.0:
+            raise ValueError('Support-state CC preservation changed.')
+    summary['_source'] = str(path)
+    return summary
+
+
 def markdown_metric(row, metric):
     return format_summary(row[metric], row[metric + '_std'])
 
@@ -398,9 +430,53 @@ def delta_table(title, records, baseline, candidate, datasets):
     return lines
 
 
+def support_state_table(title, summary):
+    lines = [
+        '## %s' % title,
+        '',
+        '| 数据集 | Units | NoContext Macro-AUPR | V3 Macro-AUPR | '
+        'Delta | Positive | WW Delta | CW Delta | WC Delta | CC Delta |',
+        '|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|',
+    ]
+    for row in summary['datasets']:
+        lines.append(
+            '| %s | %d | %s | %s | %s | %d/%d | %+.6f | %+.6f | '
+            '%+.6f | %+.6f |' % (
+                row['display_name'], row['units'],
+                format_summary(
+                    row['baseline_macro_aupr']['mean'],
+                    row['baseline_macro_aupr']['std'],
+                ),
+                format_summary(
+                    row['candidate_macro_aupr']['mean'],
+                    row['candidate_macro_aupr']['std'],
+                ),
+                format_signed_summary(
+                    row['delta']['macro']['mean'],
+                    row['delta']['macro']['std'],
+                ),
+                row['positive_macro_units'], row['units'],
+                row['delta']['warm_warm']['mean'],
+                row['delta']['cold_warm']['mean'],
+                row['delta']['warm_cold']['mean'],
+                row['delta']['cold_cold']['mean'],
+            )
+        )
+    lines.extend([
+        '',
+        '20 单元总体 Macro-AUPR 增量为 `%s`。该表包含历史 `c0p0`，'
+        '仅作描述性汇总；预注册确认 Gate 只使用 `c1p1-c4p4` 的 16 个新单元。'
+        % format_signed_summary(
+            summary['overall_macro_aupr_delta']['mean'],
+            summary['overall_macro_aupr_delta']['std'],
+        ),
+    ])
+    return lines
+
+
 def build_markdown(
         manifest, random_rows, cold_rows, calibrated_rows,
-        external_rows=None):
+        external_rows=None, support_state_summary=None):
     datasets = manifest['datasets']
     random_methods = [item['method'] for item in manifest['random_edge']['sources']]
     cold_methods = [
@@ -508,6 +584,13 @@ def build_markdown(
         calibrated_methods[0], calibrated_methods[1], datasets,
     ))
     section += 1
+    if support_state_summary is not None:
+        lines.extend([''])
+        lines.extend(support_state_table(
+            '%d. 支持状态五单元描述性结果' % section,
+            support_state_summary,
+        ))
+        section += 1
     lines.extend([
         '',
         '## %d. 解释边界' % section,
@@ -527,6 +610,8 @@ def build_markdown(
         '的 compound cold-start。',
         '- NoContext 未执行事后阈值校准；其固定 `0.5` 分类指标仅用于完整披露，'
         '不与已校准的 Hctx-P/SDIS 分类指标混合比较。',
+        '- 支持状态五单元表中的历史 `c0p0` 只用于描述性汇总；V3 的确认性'
+        '结论来自预注册的 16 个新 outer units，不能混写为 20 单元预注册 Gate。',
         '',
         '## %d. 冻结来源' % (section + 1),
         '',
@@ -535,6 +620,10 @@ def build_markdown(
     for row in random_rows + external_rows + cold_rows + calibrated_rows:
         if row['source'] not in seen:
             seen.append(row['source'])
+    if (
+            support_state_summary is not None
+            and support_state_summary.get('_source')):
+        seen.append(support_state_summary['_source'])
     lines.extend('- `%s`' % path for path in seen)
     lines.append('')
     return '\n'.join(lines)
@@ -550,6 +639,7 @@ def generate(manifest_path, output_path):
     random_rows = collect_random(manifest)
     external_rows = collect_external(manifest)
     cold_rows, calibrated_rows = collect_cold_start(manifest)
+    support_state_summary = collect_support_state_five_unit(manifest)
     output_path = repository_path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
@@ -559,6 +649,7 @@ def generate(manifest_path, output_path):
             cold_rows,
             calibrated_rows,
             external_rows=external_rows,
+            support_state_summary=support_state_summary,
         ),
         encoding='utf-8',
     )

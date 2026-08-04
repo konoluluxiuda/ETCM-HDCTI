@@ -98,5 +98,10 @@
         "variant": "SDIS"
       }
     ]
+  },
+  "support_state_five_unit": {
+    "summary": "results/batch_runs/frozen_base_hctx_router_repeated_outer_20260804_132807/five_unit_summary.json",
+    "sha256": "8d76d7f237d21bf8199b8b5012dc3d161019a9bab5a3ae2b725f0bf2592327a1",
+    "role": "descriptive_c0p0_through_c4p4; confirmatory_gate_uses_only_c1p1_through_c4p4"
   }
 }

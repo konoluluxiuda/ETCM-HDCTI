@@ -87,6 +87,26 @@ class PaperResultsTablesTest(unittest.TestCase):
                 ('Dual', 'LightGCN', 'R-GCN', 'HGT')
             )
         ]
+        support_state_summary = {
+            'overall_macro_aupr_delta': {'mean': 0.1, 'std': 0.02},
+            'datasets': [
+                {
+                    'display_name': dataset,
+                    'units': 5,
+                    'baseline_macro_aupr': {'mean': 0.5, 'std': 0.01},
+                    'candidate_macro_aupr': {'mean': 0.6, 'std': 0.01},
+                    'delta': {
+                        'macro': {'mean': 0.1, 'std': 0.02},
+                        'warm_warm': {'mean': 0.01, 'std': 0.0},
+                        'cold_warm': {'mean': 0.39, 'std': 0.0},
+                        'warm_cold': {'mean': 0.0, 'std': 0.0},
+                        'cold_cold': {'mean': 0.0, 'std': 0.0},
+                    },
+                    'positive_macro_units': 5,
+                }
+                for dataset in datasets
+            ],
+        }
 
         markdown = build_markdown(
             manifest,
@@ -94,6 +114,7 @@ class PaperResultsTablesTest(unittest.TestCase):
             cold_rows,
             calibrated_rows,
             external_rows=external_rows,
+            support_state_summary=support_state_summary,
         )
 
         self.assertIn('普通 Strict 随机边五折', markdown)
@@ -103,6 +124,8 @@ class PaperResultsTablesTest(unittest.TestCase):
         self.assertIn('4 种外部方法', markdown)
         self.assertIn('Compound cold-start 五折', markdown)
         self.assertIn('Compound cold-start Hctx-P 直接消融', markdown)
+        self.assertIn('支持状态五单元描述性结果', markdown)
+        self.assertIn('20 单元总体 Macro-AUPR 增量', markdown)
         self.assertIn('**+0.010000**', markdown)
         self.assertNotIn('NoContext 完整五折尚不存在', markdown)
 

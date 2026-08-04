@@ -137,7 +137,18 @@
 | ETCM2.0 mention10 | +0.025281 | +0.017686 | +0.038799 | +0.014695 | +0.025742 |
 | **Macro** | **+0.038885** | **+0.028024** | **-0.000119** | **+0.046988** | **+0.029535** |
 
-## 11. 解释边界
+## 11. 支持状态五单元描述性结果
+
+| 数据集 | Units | NoContext Macro-AUPR | V3 Macro-AUPR | Delta | Positive | WW Delta | CW Delta | WC Delta | CC Delta |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| TCM-Suite | 5 | 0.566756 (±0.004272) | 0.614979 (±0.003967) | +0.048223 (±0.004947) | 5/5 | +0.018313 | +0.174579 | +0.000000 | +0.000000 |
+| TCMSP | 5 | 0.561596 (±0.017449) | 0.695667 (±0.008400) | +0.134071 (±0.012500) | 5/5 | +0.006733 | +0.529551 | +0.000000 | +0.000000 |
+| SymMap2.0 | 5 | 0.552728 (±0.006081) | 0.653935 (±0.008209) | +0.101206 (±0.003745) | 5/5 | +0.023039 | +0.381786 | +0.000000 | +0.000000 |
+| ETCM2.0-mention10 | 5 | 0.553840 (±0.010650) | 0.686311 (±0.015470) | +0.132470 (±0.006678) | 5/5 | +0.009275 | +0.520606 | +0.000000 | +0.000000 |
+
+20 单元总体 Macro-AUPR 增量为 `+0.103993 (±0.035613)`。该表包含历史 `c0p0`，仅作描述性汇总；预注册确认 Gate 只使用 `c1p1-c4p4` 的 16 个新单元。
+
+## 12. 解释边界
 
 - 随机边主配置为 `Hctx-P + CHCR`；CHCR 不进入 cold-start 主配置。
 - 4 种外部方法是共享匿名拓扑输入和 BCE 监督的适配基线，不是原论文属性模型的原样复现。
@@ -147,8 +158,9 @@
 - Cold-start 固定 `0.5` 阈值与 inner-validation 阈值必须同时报告。
 - Compound cold-start 下 Hctx-P 相对 NoContext 的四库 AUPR 增量均为正，macro 增量为 `+0.437826`；该结果只适用于具有 H-C 侧信息的 compound cold-start。
 - NoContext 未执行事后阈值校准；其固定 `0.5` 分类指标仅用于完整披露，不与已校准的 Hctx-P/SDIS 分类指标混合比较。
+- 支持状态五单元表中的历史 `c0p0` 只用于描述性汇总；V3 的确认性结论来自预注册的 16 个新 outer units，不能混写为 20 单元预注册 Gate。
 
-## 12. 冻结来源
+## 13. 冻结来源
 
 - `/home/zry/workspace/HDCTI/results/batch_runs/no_dense_hctx_ablation_20260722_164221/results.tsv`
 - `/home/zry/workspace/HDCTI/results/batch_runs/no_dense_chcr_full_20260717_171403/results.tsv`
@@ -157,3 +169,4 @@
 - `/home/zry/workspace/HDCTI/results/batch_runs/cold_start_hctx_ablation_20260730_133133/results.tsv`
 - `/home/zry/workspace/HDCTI/results/batch_runs/sdis_full_20260718_212240/results.tsv`
 - `/home/zry/workspace/HDCTI/results/batch_runs/sdis_full_20260718_212240/calibration/results.tsv`
+- `/home/zry/workspace/HDCTI/results/batch_runs/frozen_base_hctx_router_repeated_outer_20260804_132807/five_unit_summary.json`
