@@ -1,0 +1,41 @@
+{
+  "protocol": "frozen_base_hctx_router_vs_sdis_preregistration_v1",
+  "created_at": "2026-08-04",
+  "question": "Does the frozen-base Hctx-P router improve on the matched jointly trained Hctx-P plus SDIS comparator on the same repeated outer units?",
+  "prepared_units_manifest": "configs/frozen_base_hctx_router_repeated_units_manifest.json",
+  "prepared_units_manifest_sha256": "968fa8b1d1386891016d1edfcc3a0735085000bf21675081ea35e79de3082d1a",
+  "v3_repeated_summary": "results/batch_runs/frozen_base_hctx_router_repeated_outer_20260804_132807/summary.json",
+  "v3_repeated_summary_sha256": "87442a0596690ced09523fa7004dbd1d05802af921c0e1d343b6b189b93dfc09",
+  "comparator": {
+    "name": "joint_hctx_p_plus_sdis",
+    "selection_records": "inner_validation",
+    "selection_metric": "four_state_macro_aupr",
+    "outer_records_used_during_training": false,
+    "config_overrides": {
+      "context.interaction": "True",
+      "context.herb_protein": "True",
+      "inductive.context": "True",
+      "inductive.context.suppress.base.zero.support": "True",
+      "inductive.context.self.excluded": "False"
+    }
+  },
+  "primary_endpoint": "paired outer-unit Macro-AUPR difference: V3 minus matched Hctx-P plus SDIS",
+  "decision_gate": {
+    "unit_count": 16,
+    "noninferiority": {
+      "overall_mean_macro_aupr_delta_minimum": -0.005,
+      "each_dataset_mean_macro_aupr_delta_minimum": -0.01,
+      "maximum_dataset_mean_state_aupr_drop": 0.02
+    },
+    "superiority": {
+      "overall_mean_macro_aupr_delta_minimum": 0.005,
+      "minimum_positive_units": 12,
+      "each_dataset_mean_macro_aupr_delta_minimum": 0.0
+    }
+  },
+  "decision_rule": {
+    "superiority_pass": "V3 replaces SDIS as the final support-state method.",
+    "noninferiority_only": "V3 may be preferred for exact base preservation, but no accuracy-superiority claim is allowed.",
+    "noninferiority_fail": "Retain Hctx-P plus SDIS as the stronger matched predictor and downgrade V3 to a support-preservation analysis."
+  }
+}

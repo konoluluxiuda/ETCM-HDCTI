@@ -29,6 +29,10 @@ def parse_args():
     parser.add_argument('--checkpoint', required=True)
     parser.add_argument('--output-dir', required=True)
     parser.add_argument('--baseline-report')
+    parser.add_argument(
+        '--records', choices=('validation', 'outer'), default='validation',
+        help='Evaluate the inner-validation or untouched outer state records.',
+    )
     return parser.parse_args()
 
 
@@ -53,7 +57,8 @@ def sha256_file(path):
     return digest.hexdigest()
 
 
-def evaluate_checkpoint(config_path, checkpoint_prefix):
+def evaluate_checkpoint(
+        config_path, checkpoint_prefix, records='validation'):
     from util.config import ModelConf, OptionConf
     from util.gpu import configure_cuda_environment
     from util.reproducibility import set_global_seed
@@ -117,17 +122,25 @@ def evaluate_checkpoint(config_path, checkpoint_prefix):
     saver = tf.train.Saver(var_list=graph_variables)
     saver.restore(model.sess, str(checkpoint_prefix))
     state = model.fetchModelState()
+    if records == 'validation':
+        records_by_state = experiment.supportValidationDataByState
+    elif records == 'outer':
+        records_by_state = experiment.supportTestDataByState
+    else:
+        model.sess.close()
+        raise ValueError('Unsupported four-state record source: %s' % records)
+
     metrics = {}
     for state_name in STATE_NAMES:
-        records = experiment.supportValidationDataByState[state_name]
+        state_records = records_by_state[state_name]
         metrics[state_name] = {
             'AUPR': model.evaluateValidation(
-                state, 'aupr', validation_records=records
+                state, 'aupr', validation_records=state_records
             ),
             'AUC': model.evaluateValidation(
-                state, 'auc', validation_records=records
+                state, 'auc', validation_records=state_records
             ),
-            'records': len(records),
+            'records': len(state_records),
         }
     model.sess.close()
     metrics['macro'] = {
@@ -224,11 +237,14 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     conf, experiment, metrics = evaluate_checkpoint(
-        config_path, checkpoint_prefix
+        config_path, checkpoint_prefix, records=args.records
     )
     report = {
         'created_at': datetime.now().astimezone().isoformat(),
         'evaluation': 'four_state_checkpoint_pure_inference',
+        'records': args.records,
+        'training_optimizer_steps': 0,
+        'parameter_selection_on_records': False,
         'config': {
             'path': str(config_path),
             'sha256': sha256_file(config_path),
