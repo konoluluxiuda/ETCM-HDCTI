@@ -81,6 +81,8 @@ CHCR 只改变训练目标：对已知训练正样本构造同 H-C degree 的反
 | C2 | 支持掩码 episodic training | 用 warm compound 制造零 C-P 支持的 pseudo-cold episode 具有工程合理性，但不能作为独立新机制 | DropoutNet、PT-GNN 和 CGRC 已分别覆盖协同输入 dropout、warm-to-cold episode 与全交互边掩码重建；CLCRec/ALDI 覆盖对比和蒸馏变体 | No-Go（创新性） | 不实现、不进入 Pilot；若后续作为训练技巧使用，必须引用近邻工作并降级表述 | [SUPPORT_MASKED_EPISODIC_AUDIT](SUPPORT_MASKED_EPISODIC_AUDIT.md) |
 | C3 | HPLGA 线性全局注意力 | 用 H-C/P-D 超图 PageRank 调制核化线性全局读取，以线性复杂度补回被删除的全节点感受野 | Gate 0 通过；四库 fold 1 validation AUPR 增量 `+0.000448/-0.001326/-0.004159/-0.000067`，macro `-0.001276`，仅 1/4 提高 | No-Go | 分支残差尺度均已激活；停止完整五折、cold-start Gate 和所有结构/参数搜索，不能列为第三机制 | [HYPERGRAPH_PAGERANK_LINEAR_ATTENTION](HYPERGRAPH_PAGERANK_LINEAR_ATTENTION.md) |
 | C4 | H-C/P-D 侧关系辅助重构 | 用侧关系拓扑保持约束 compound、protein 与超边表示 | NeoDTI 已对全部异构关系使用关系特定投影和联合边重构，并报告只重构 DTI 时 AUPR 下降 `5.5%`；后续 DTI 图自编码器继续沿用该范式 | No-Go（创新性） | 串联门槛第一关失败，不执行冻结表示 probe、训练实现或损失权重搜索；只能作为有出处的普通正则 | [侧关系重构审计](SIDE_RELATION_RECONSTRUCTION_AUDIT.md) |
+| C5 | 冻结基座 Hctx-P 路由 V3 | 冻结 base、隔离训练 Hctx-P head 能稳定修复 CW 状态，但不能替代联合 Hctx-P+SDIS | 相对 NoContext 的 16 个新 outer units 为 16/16 正向、Macro-AUPR `+0.105385`；相对匹配 SDIS 总体仍为 `+0.011573`，但仅 10/16 正向，SymMap 为负，WW/CC 出现超过预注册上限的状态退化 | No-Go（最终替代） | 只允许作为 CW 专家与支持失配诊断；不进入最终 `Ours-full`，不据 outer 结果修改路由或状态阈值 | [V3 与 SDIS 匹配比较](FROZEN_BASE_HCTX_ROUTER_VS_SDIS.md) |
+| C6 | LOCO 双超图原型迁移 | 用自排除的 H-C/P-D 原型迁移替代候选无关的 PageRank 标量 | 四库 inner-only expected-channel Macro-AUPR `0.738732`，4/4 数据集宏观门槛和 11/12 cold-state 单元通过；但预注册非零覆盖率 Gate 失败，TCMSP WC/CC 覆盖仅 `0.006404/0.018409`，ETCM CC AUPR `0.493988` | No-Go（双向替代） | H→P 在四库 CW 均有信号，可作为问题诊断；不得调融合权重或将不完整的单侧迁移写成整个 PageRank 的替代 | [LOCO 双超图迁移审计](LOCO_DUAL_HYPERGRAPH_TRANSFER_AUDIT.md) |
 | D1 | ETCM2.0 数据工作 | 构建具有实体映射、关系审计和剪枝依据的 ETCM2.0 CTI 数据集，用于外部验证和案例研究 | mention10/core 构建、数据统计、关系交集与映射审查 | A（数据） | mention10 是证据频次过滤；不能声称覆盖 ETCM2.0 全部实体 | [DATASET_STATISTICS](DATASET_STATISTICS.md)、[ETCM2_CORE_NOTES](ETCM2_CORE_NOTES.md) |
 | D2 | ETCM2.0 Top-K 独立核验 | 冻结候选中存在可由外部实验支持的预测，同时高排名候选也可能与直接实验冲突 | 检索前冻结 15 个 pair，完成 45 个 BindingDB/ChEMBL/PubMed 查询；B1 2 条、E 12 条、Conflict 1 条 | B（案例） | `2/15` 不是总体 precision；E 不是确认负例；页面路径不是独立 C-P 证据 | [ETCM Top-K 核验](ETCM_TOPK_MANUAL_VALIDATION.md)、[代表案例](ETCM_REPRESENTATIVE_CASES.md) |
 
@@ -115,6 +117,8 @@ CHCR 只改变训练目标：对已知训练正样本构造同 H-C degree 的反
 | 支持掩码 episodic training | 与 DropoutNet、PT-GNN、CGRC 的 cold-start simulation 核心动作高度同构 | 在创新性门槛停止，不以改名方式进入新 Pilot |
 | H-C/P-D 侧关系辅助重构 | NeoDTI 已联合重构 DTI 与其他异构关系，核心训练动作高度同构 | 在创新性门槛停止；不运行 frozen probe 或训练 Pilot |
 | CHCR 四库普适机制 | SymMap 仅 1/5 folds 通过 donor-control | 限制机制主张，不否定其已观察的性能结果 |
+| 冻结基座 Hctx-P 路由 V3 | 相对 SDIS 仅 10/16 units 提高；WW 平均 `-0.029741`、CC 平均 `-0.035867`，未通过状态非劣 Gate | 保留其 CW 16/16 提高的诊断证据，但不得写为 SDIS 的统一替代或第三个最终模块 |
+| LOCO 双超图原型迁移 | 预测区分度达到门槛，但预注册覆盖率 Gate 失败；TCMSP 疾病侧近乎不可用，ETCM 双冷略低于随机 | 不进入模型 Pilot；保留 H→P 四库 CW 信号，用于约束下一种 PageRank 替代设计 |
 
 ## 7. 论文表格映射
 
@@ -224,7 +228,7 @@ ETCM Top-K 证据闭环也已完成，见
 [ETCM_TOPK_MANUAL_VALIDATION.md](ETCM_TOPK_MANUAL_VALIDATION.md)。两个 B1
 正向案例和一个 Conflict 失败案例已经按证据等级自动冻结，不根据模型分数或
 路径数量替换。同一 Strict 协议下的四种外部拓扑基线和代表案例图也均已完成。
-已有方法实验和外部同输入基线结果均冻结，但最终方法尚未冻结。唯一重新开放的
+已有方法实验和外部同输入基线结果均冻结。唯一重新开放的
 SCHE 统一模型 Pilot 已按预注册门槛判定 No-Go；作者同时否决将 CHCR 与 SDIS
 按两个场景拼接为最终框架。研究问题已经收窄为 compound cold-start。共享
 Hctx-P + SDIS 的支持掩码 episodic training 也已完成近邻工作审计，并因与
@@ -232,7 +236,9 @@ DropoutNet、PT-GNN、CGRC 等方法高度同构而在创新性门槛判定 No-G
 单折或四库实验。当前已冻结主模型仍为 `Hctx-P + SDIS`。为补足第三项模型
 机制而实现的 HPLGA 已完成 Gate 0/1：工程与复杂度检查通过，但四库 macro
 AUPR 下降 `0.001276`，仅 TCM-Suite 提高，SymMap2.0 下降 `0.004159`。因此
-不进入统一 cold-start Gate，最终模型仍冻结为 `Hctx-P + SDIS`。
+不进入统一 cold-start Gate。随后 V3 冻结基座 Hctx-P 路由虽然相对 NoContext
+通过重复 outer 确认，但相对匹配 SDIS 未通过预注册状态非劣 Gate；最终模型仍
+冻结为 `Hctx-P + SDIS`。
 
 四库 cold-start NoContext 完整五折也已补齐。Hctx-P 相对 NoContext 的 AUPR
 增量为 `+0.203622/+0.584248/+0.407087/+0.556348`，macro `+0.437826`，
@@ -294,3 +300,85 @@ WW 小幅提高，WC/CC 精确保留。全部新 outer Gate 均通过，且 oute
 Macro-AUPR 增量为 `+0.103993 (±0.035613)`。正文可以同时报告“16 个新单元
 预注册 Gate”和“20 个单元描述性汇总”，但必须明确前者是确认性分析，后者
 包含历史单元，不能混写成同一个预注册统计检验。
+
+上述确认只回答 V3 是否优于 NoContext，并不回答它是否优于已冻结 SDIS。最终
+又在完全相同的四库 16 个 `c1p1-c4p4` outer units 上执行了预注册直接比较：
+16 个联合 Hctx-P+SDIS checkpoint 均先按 inner-validation 训练并冻结哈希，随后
+才进行纯 outer 推理。V3-SDIS 的总体 Macro-AUPR 为 `+0.011573`，但仅
+`10/16` units 为正，SymMap 平均为 `-0.002696`；WW、CW、WC、CC 的 16-unit
+平均差值分别为 `-0.029741/+0.106528/+0.005370/-0.035867`。SymMap CC
+下降 `-0.097234`，TCMSP CC 下降 `-0.038822`，超过预注册状态退化上限。
+
+因此直接比较的非劣与优效 Gate 均失败。V3 的准确定位是“对 CW 状态稳定有效的
+冻结上下文专家”，不是比 SDIS 更完整的支持状态模型。最终方法继续使用
+`Hctx-P + SDIS`；V3 只进入补充机制分析，不作为第三个最终模块。结果与冻结
+哈希见 [V3 与 SDIS 匹配比较](FROZEN_BASE_HCTX_ROUTER_VS_SDIS.md)。
+
+## 11. 2026-08-05 PageRank 替代候选审计
+
+为避免继续在最终解码器后叠加独立分支，第三项算法候选改为替换原始 PageRank
+节点标量。首个候选 LOCO 双超图原型迁移在四库冻结 support-complete 单元的
+inner-validation 上完成纯统计审计：模型训练、checkpoint 恢复和 outer-test
+读取均为 0。compound/protein 上下文相似矩阵删除自身项，全部原型只使用
+inner-training C-P 正边。
+
+预注册 expected-channel Macro-AUPR 为 `0.738732`，4/4 数据集达到宏观门槛，
+12 个 cold-state 单元中 11 个 AUPR 不低于 `0.5`。其中 CW 的 H→P AUPR 为
+`0.675779/0.919598/0.821828/0.870656`，说明通过共享药材迁移靶点原型具有稳定
+信号。但覆盖率 Gate 失败：TCMSP 的 WC/CC 非零覆盖率仅为
+`0.006404/0.018409`，ETCM 的 CC AUPR 为 `0.493988` 且正负均值差为负。
+
+因此当前双向版本判定 **No-Go**，不进入 validation-only 模型 Pilot，也不搜索
+融合权重、Top-K、温度或数据库专用回退。该负结果说明下一种 PageRank 替代若要
+成为统一第三机制，必须从结构上解决 disease-side 与 double-cold 的证据覆盖，
+而不是继续调节 H→P 单侧迁移。完整结果见
+[LOCO_DUAL_HYPERGRAPH_TRANSFER_AUDIT.md](LOCO_DUAL_HYPERGRAPH_TRANSFER_AUDIT.md)。
+
+## 12. 2026-08-05 SCHPT 第三算法候选
+
+双向 LOCO 审计的 No-Go 不否定四库均稳定的单侧 H-C→C-P 信号。由于本文主问题
+已经冻结为 **side-information-assisted compound cold-start**，下一候选不再
+声称解决 target-cold 或 double-cold，而是只替换与 compound 表示相关的 C-P
+PageRank；蛋白侧 P-D PageRank继续保留。
+
+候选命名为 `SCHPT`（Support-Calibrated Herb Prototype Transfer）。它只使用
+当前折训练 C-P 正边，在每个药材内统计有 C-P 支撑成员的靶点原型，并在评价
+`(c,p)` 时动态删除 `c` 的支撑状态及其 `(c,p)` 正边贡献。Laplace/经验贝叶斯
+先验强度固定为 `1`，无其他受支持成员时残差严格为 `0`。模型删除成分侧
+PageRank 后，仅以一个从 `0` 初始化的标量将该残差加入 pair logit；Hctx-P、
+SDIS、Dot、P-D PageRank 和 `attention.max.nodes=0` 保持不变。
+
+首次 seed `52026`、ETCM mention10 compound cold-start 第 1 折
+inner-validation 已完成：基线/SCHPT AUPR 为 `0.906082/0.912476`，增量
+`+0.006394`；证据覆盖率 `99.42%`，原型残差平均绝对值 `0.078485`，learned
+scale 为 `1.670859`。正负验证 pair 的平均残差为 `+0.112150/-0.003324`，且
+outer test 未用于选择。预注册三项 Gate 全部通过。
+
+四库同 seed Gate 1 已完成并通过：TCM-Suite、TCMSP、SymMap2.0 和
+ETCM2.0-mention10 的 Validation-AUPR 增量分别为
+`+0.016347/+0.002926/+0.024967/+0.007528`，平均增量 `+0.012942`，`4/4`
+数据集为正；证据覆盖率均为 `98.68%` 以上且 learned scale 全部非零。该项证据
+等级升级为 **B：四库单折预注册 Gate PASS**，允许进入冻结五折确认，但尚未
+达到可进入最终主表的 A 级证据。协议与结果见
+[SCHPT_PILOT_PROTOCOL.md](SCHPT_PILOT_PROTOCOL.md)。
+
+四库五折确认配置现已在结果读取前冻结：继续使用 seed `52026` 和原有
+compound cold-start split，仅移除单折限制并开启 outer test。最终 Gate 同时
+约束四库平均增量、正向数据库数、最差数据库增量、20 个配对 fold 的正向数量及
+每 fold 原型有效性；完整阈值和 SHA-256 见 `configs/schpt_full_manifest.json`。
+运行前证据保持 B 级，并冻结为只有 `run_schpt_full.sh` 完成后才允许决定是否
+升级为 A。
+
+四库五折确认现已完成并通过全部冻结判据。TCM-Suite、TCMSP、SymMap2.0 和
+ETCM2.0-mention10 的 outer AUPR 增量分别为
+`+0.003758/+0.017766/+0.030323/+0.011878`，四库平均 `+0.015931`；`4/4`
+数据集和 `17/20` 配对 folds 为正，所有候选 fold 覆盖率与 scale 有效。因此
+SCHPT 证据等级升级为 **A**，可作为替换 compound C-P PageRank 的第三算法
+贡献。TCM-Suite 只有 `2/5` folds 为正，故论文不得声称逐 fold 一致提升。
+
+首次四库 Gate 1 在 SymMap candidate 初始化阶段触发主机 OOM（status `137`），
+根因是训练 C-P 成员关系被误存为稠密 `|C| x |P|` 数组。该工程错误已改为
+`O(|E_CP|)` 的排序边键查询，并通过 TensorFlow/checkpoint 一致性和大形状稀疏
+回归测试；方法定义、冻结配置与 Gate 未发生变化。续跑复用了已有 5 个完成日志，
+并完成失败项及后续 ETCM 配对；最终四库 Gate 为 PASS，因此该中断不影响方法
+结论。

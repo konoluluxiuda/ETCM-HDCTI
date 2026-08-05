@@ -1,0 +1,48 @@
+{
+  "protocol": "schpt_four_dataset_seed52026_inner_gate_v1",
+  "split_strategy": "compound_cold_start",
+  "split_seed": 52026,
+  "fold_limit": 1,
+  "outer_test": false,
+  "datasets": [
+    {
+      "name": "TCM-Suite",
+      "slug": "tcmsuite",
+      "baseline_config": "configs/HDCTI_tcmsuite_schpt_baseline_gate1.conf",
+      "baseline_sha256": "976c3398489caff8813e5d2ae976e10d92b764e0221eb97a5ea699037ba911d8",
+      "candidate_config": "configs/HDCTI_tcmsuite_schpt_gate1.conf",
+      "candidate_sha256": "8a6d8c229dbd075cad4e75fe7db1a08c24a094986ffcd029f4bae6619c6bb6d5"
+    },
+    {
+      "name": "TCMSP",
+      "slug": "tcmsp",
+      "baseline_config": "configs/HDCTI_tcmsp_schpt_baseline_gate1.conf",
+      "baseline_sha256": "eb322c06e9349e138157caf221a1532c9e154058ea4efbd5b1b08fcd73f3e03b",
+      "candidate_config": "configs/HDCTI_tcmsp_schpt_gate1.conf",
+      "candidate_sha256": "7026e922a7e34d26c2f893ab904b03dcbc1a6b4e73a2a693b361cd1c4cc7efa1"
+    },
+    {
+      "name": "SymMap2.0",
+      "slug": "symmap",
+      "baseline_config": "configs/HDCTI_symmap_schpt_baseline_gate1.conf",
+      "baseline_sha256": "bc891aefd3d438fe750c7c3b11fc7b41b11d21b5747592102ddb289e293b8a7e",
+      "candidate_config": "configs/HDCTI_symmap_schpt_gate1.conf",
+      "candidate_sha256": "19af2cc8867557e931914fedc9934881891d4f82c6a693da630a3412e2435f72"
+    },
+    {
+      "name": "ETCM2.0-mention10",
+      "slug": "etcm_mention10",
+      "baseline_config": "configs/HDCTI_etcm_mention10_schpt_baseline_pilot.conf",
+      "baseline_sha256": "7349dc86c0c5403a74d7110b8322e341ef61aeba9681d3e3ea530c9d1f99fd56",
+      "candidate_config": "configs/HDCTI_etcm_mention10_schpt_pilot.conf",
+      "candidate_sha256": "eb84d02941627be019c16d7874474e01f7e5ac978d9b8ea1d269aca33d17e412"
+    }
+  ],
+  "gate": {
+    "minimum_mean_validation_aupr_delta": 0.003,
+    "minimum_positive_dataset_count": 3,
+    "minimum_dataset_validation_aupr_delta": -0.003,
+    "minimum_evidence_coverage_each_dataset": 0.3,
+    "minimum_absolute_learned_scale_each_dataset": 1e-06
+  }
+}

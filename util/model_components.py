@@ -646,6 +646,42 @@ def resolve_pair_decoder(config):
     }
 
 
+def resolve_herb_prototype_transfer(config):
+    enabled = _config_bool(config, 'herb.prototype.transfer', False)
+    mode = (
+        str(config['herb.prototype.mode']).strip().lower()
+        if config.contains('herb.prototype.mode')
+        else 'support_calibrated_loco'
+    )
+    prior_strength = (
+        float(config['herb.prototype.prior'])
+        if config.contains('herb.prototype.prior') else 1.0
+    )
+    replace_compound_pagerank = _config_bool(
+        config, 'herb.prototype.replace.compound.pagerank', enabled
+    )
+    if mode != 'support_calibrated_loco':
+        raise ValueError(
+            'herb.prototype.mode must be support_calibrated_loco.'
+        )
+    if prior_strength <= 0:
+        raise ValueError('herb.prototype.prior must be positive.')
+    if enabled and not replace_compound_pagerank:
+        raise ValueError(
+            'Herb prototype transfer must replace compound PageRank.'
+        )
+    if not enabled and replace_compound_pagerank:
+        raise ValueError(
+            'Compound PageRank replacement requires herb.prototype.transfer=True.'
+        )
+    return {
+        'enabled': enabled,
+        'mode': mode,
+        'prior_strength': prior_strength,
+        'replace_compound_pagerank': replace_compound_pagerank,
+    }
+
+
 class EarlyStoppingTracker(object):
     def __init__(self, patience, min_delta):
         self.patience = int(patience)
@@ -735,7 +771,9 @@ def context_interaction_pair_scores(
         base_score_scale=None,
         cold_herb_protein_weight=None,
         cold_herb_protein_scale=None,
-        herb_disease_scale=None):
+        herb_disease_scale=None,
+        herb_prototype_residual=None,
+        herb_prototype_scale=None):
     compound_indices = np.asarray(compound_indices, dtype=np.int64)
     protein_indices = np.asarray(protein_indices, dtype=np.int64)
     if compound_indices.shape != protein_indices.shape:
@@ -833,6 +871,22 @@ def context_interaction_pair_scores(
                 )
             herb_disease_scores *= herb_disease_scale
         scores += herb_disease_scores
+    if herb_prototype_residual is not None:
+        if herb_prototype_scale is None:
+            raise ValueError(
+                'Herb prototype scale is required with prototype residuals.'
+            )
+        prototype_residual = np.asarray(
+            herb_prototype_residual, dtype=np.float64
+        ).reshape(-1)
+        if prototype_residual.shape != scores.shape:
+            raise ValueError(
+                'Herb prototype residuals must match the number of pairs.'
+            )
+        prototype_scale = float(
+            np.asarray(herb_prototype_scale).reshape(-1)[0]
+        )
+        scores += prototype_scale * prototype_residual
     return scores
 
 

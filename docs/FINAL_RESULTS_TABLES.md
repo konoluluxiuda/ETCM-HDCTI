@@ -148,7 +148,22 @@
 
 20 单元总体 Macro-AUPR 增量为 `+0.103993 (±0.035613)`。该表包含历史 `c0p0`，仅作描述性汇总；预注册确认 Gate 只使用 `c1p1-c4p4` 的 16 个新单元。
 
-## 12. 解释边界
+## 12. SCHPT compound cold-start 五折确认
+
+| 数据集 | Baseline AUC | SCHPT AUC | Baseline AUPR | SCHPT AUPR | AUPR 增量 | 正向 folds |
+|---|---:|---:|---:|---:|---:|---:|
+| TCM-Suite | 0.729913 | 0.730069 | 0.717960 | 0.721718 | +0.003758 | 2/5 |
+| TCMSP | 0.944074 | 0.952025 | 0.939557 | 0.957323 | +0.017766 | 5/5 |
+| SymMap2.0 | 0.803038 | 0.818680 | 0.807284 | 0.837607 | +0.030323 | 5/5 |
+| ETCM2.0 mention10 | 0.918210 | 0.926106 | 0.901777 | 0.913655 | +0.011878 | 5/5 |
+| **Macro delta** | - | - | - | - | **+0.015931** | **17/20** |
+
+SCHPT 与 Baseline 使用 seed `52026` 的同一 compound cold-start 五折、相同
+Hctx-P + SDIS 骨干和 inner-validation AUPR 早停；唯一方法差异是以支持度校准
+LOCO 药材靶点原型替换 compound C-P PageRank。预注册 Gate 全部通过。TCM-Suite
+仅 `2/5` folds 为正，因此结果支持跨库总体增益，不支持逐 fold 单调提升主张。
+
+## 13. 解释边界
 
 - 随机边主配置为 `Hctx-P + CHCR`；CHCR 不进入 cold-start 主配置。
 - 4 种外部方法是共享匿名拓扑输入和 BCE 监督的适配基线，不是原论文属性模型的原样复现。
@@ -159,8 +174,9 @@
 - Compound cold-start 下 Hctx-P 相对 NoContext 的四库 AUPR 增量均为正，macro 增量为 `+0.437826`；该结果只适用于具有 H-C 侧信息的 compound cold-start。
 - NoContext 未执行事后阈值校准；其固定 `0.5` 分类指标仅用于完整披露，不与已校准的 Hctx-P/SDIS 分类指标混合比较。
 - 支持状态五单元表中的历史 `c0p0` 只用于描述性汇总；V3 的确认性结论来自预注册的 16 个新 outer units，不能混写为 20 单元预注册 Gate。
+- SCHPT 四库平均 AUPR 增量和 17/20 正向 folds 通过预注册 Gate；TCM-Suite 的 fold 异质性必须在讨论中披露。
 
-## 13. 冻结来源
+## 14. 冻结来源
 
 - `/home/zry/workspace/HDCTI/results/batch_runs/no_dense_hctx_ablation_20260722_164221/results.tsv`
 - `/home/zry/workspace/HDCTI/results/batch_runs/no_dense_chcr_full_20260717_171403/results.tsv`
@@ -170,3 +186,4 @@
 - `/home/zry/workspace/HDCTI/results/batch_runs/sdis_full_20260718_212240/results.tsv`
 - `/home/zry/workspace/HDCTI/results/batch_runs/sdis_full_20260718_212240/calibration/results.tsv`
 - `/home/zry/workspace/HDCTI/results/batch_runs/frozen_base_hctx_router_repeated_outer_20260804_132807/five_unit_summary.json`
+- `/home/zry/workspace/HDCTI/results/batch_runs/schpt_full_20260805_152323/summary.json`

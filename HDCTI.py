@@ -34,6 +34,7 @@ from util.model_components import (
     resolve_hplga,
     resolve_hyperedge_attention,
     resolve_herb_context_attention,
+    resolve_herb_prototype_transfer,
     resolve_inductive_context,
     resolve_pair_decoder,
     resolve_support_experts,
@@ -61,6 +62,10 @@ from util.hplga import (
     hplga_complexity,
     hypergraph_pagerank,
     pagerank_linear_attention_tf,
+)
+from util.herb_prototype_transfer import (
+    build_support_calibrated_herb_prototypes,
+    support_calibrated_herb_prototype_scores,
 )
 from sklearn.metrics import average_precision_score, roc_auc_score
 # tf.compat.v1.set_random_seed(4321)
@@ -310,6 +315,9 @@ class HDCTI(herbRecommender):
         self.hplga = resolve_hplga(self.config)
         self.inductive_context = resolve_inductive_context(self.config)
         self.pair_decoder = resolve_pair_decoder(self.config)
+        self.herb_prototype_transfer = resolve_herb_prototype_transfer(
+            self.config
+        )
         if self.encoder_profile['external_baseline']:
             incompatible_components = []
             if getattr(self.data, 'protocol', 'legacy') != 'strict':
@@ -338,6 +346,8 @@ class HDCTI(herbRecommender):
                 incompatible_components.append('context.herb_protein.mode')
             if self.pair_decoder['type'] != 'dot':
                 incompatible_components.append('pair.decoder')
+            if self.herb_prototype_transfer['enabled']:
+                incompatible_components.append('herb.prototype.transfer')
             if (
                 not self.config.contains('attention.max.nodes')
                 or int(self.config['attention.max.nodes']) != 0
@@ -546,6 +556,59 @@ class HDCTI(herbRecommender):
                 raise ValueError(
                     'Inductive context scoring requires attention.max.nodes=0.'
                 )
+        if self.herb_prototype_transfer['enabled']:
+            incompatible_components = []
+            if getattr(self.data, 'protocol', 'legacy') != 'strict':
+                incompatible_components.append('experiment.protocol')
+            if not self.encoder_profile['use_pagerank']:
+                incompatible_components.append('encoder.profile')
+            if self.context_terms != {
+                    'compound_disease': False,
+                    'herb_protein': True,
+                    'herb_disease': False}:
+                incompatible_components.append('context.interaction')
+            if self.herb_context_attention['mode'] != 'static':
+                incompatible_components.append('context.herb_protein.mode')
+            if (
+                not self.inductive_context['enabled']
+                or not self.inductive_context['suppress_base_zero_support']
+                or self.inductive_context['self_excluded']
+            ):
+                incompatible_components.append('inductive.context')
+            if self.counterfactual_context['enabled']:
+                incompatible_components.append('counterfactual.context')
+            if self.context_mask_training['enabled']:
+                incompatible_components.append('context.mask.training')
+            if self.support_router['enabled'] or self.support_experts['enabled']:
+                incompatible_components.append('support.router/experts')
+            if self.support_state_routing['enabled']:
+                incompatible_components.append('support.state.routing')
+            if (
+                self.hyperedge_attention['enabled']
+                or self.global_token_attention['enabled']
+                or self.hplga['enabled']
+            ):
+                incompatible_components.append('alternative.encoder')
+            if self.pair_decoder['type'] != 'dot':
+                incompatible_components.append('pair.decoder')
+            if (
+                not self.config.contains('attention.max.nodes')
+                or int(self.config['attention.max.nodes']) != 0
+            ):
+                incompatible_components.append('attention.max.nodes')
+            if incompatible_components:
+                raise ValueError(
+                    'The frozen herb prototype Pilot requires Hctx-P + SDIS '
+                    'under the strict no-dense-attention protocol; incompatible '
+                    'settings: %s.' % ', '.join(incompatible_components)
+                )
+            print(
+                'Herb prototype transfer: mode=%s prior=%g; replacing '
+                'compound PageRank while retaining protein P-D PageRank.' % (
+                    self.herb_prototype_transfer['mode'],
+                    self.herb_prototype_transfer['prior_strength'],
+                )
+            )
         if self.hyperedge_attention['enabled']:
             print(
                 'Hyperedge attention: mode=%s H-C=%s P-D=%s '
@@ -619,6 +682,26 @@ class HDCTI(herbRecommender):
         self.protein_context_available = (
             np.asarray(pd.sum(axis=1)).reshape(-1) > 0
         ).astype(np.float32)
+        self.herb_prototypes = None
+        if self.herb_prototype_transfer['enabled']:
+            self.herb_prototypes = build_support_calibrated_herb_prototypes(
+                hc, cp
+            )
+            if (
+                self.herb_prototypes['training_positive_edges']
+                != int(np.sum(self.compound_cp_support_degrees))
+            ):
+                raise ValueError(
+                    'Herb prototype statistics disagree with strict training '
+                    'C-P positive-edge counts.'
+                )
+            print(
+                'Herb prototype source: %d strict training positives across '
+                '%d supported compounds.' % (
+                    self.herb_prototypes['training_positive_edges'],
+                    self.herb_prototypes['supported_compound_count'],
+                )
+            )
         if self.support_state_routing['enabled']:
             expected_state_codes = {
                 'warm_warm': 0,
@@ -864,12 +947,21 @@ class HDCTI(herbRecommender):
         pr_protein_embeddings = None
         if self.encoder_profile['use_pagerank']:
             if getattr(self.data, 'protocol', 'legacy') == 'strict':
-                pr_compound_embeddings, _ = bipartite_pagerank(cp)
+                if not self.herb_prototype_transfer[
+                        'replace_compound_pagerank']:
+                    pr_compound_embeddings, _ = bipartite_pagerank(cp)
                 pr_protein_embeddings, _ = bipartite_pagerank(pd)
-                print(
-                    'Strict PageRank: fold training C-P graph with type-safe '
-                    'bipartite node IDs.'
-                )
+                if self.herb_prototype_transfer[
+                        'replace_compound_pagerank']:
+                    print(
+                        'Strict PageRank: compound C-P weighting replaced by '
+                        'herb prototype transfer; protein P-D weighting retained.'
+                    )
+                else:
+                    print(
+                        'Strict PageRank: fold training C-P graph with '
+                        'type-safe bipartite node IDs.'
+                    )
             else:
                 pr_compound = self.buildGraphAndPageRank(cp)
                 pr_protein = self.buildGraphAndPageRank(pd)
@@ -881,9 +973,10 @@ class HDCTI(herbRecommender):
                     pr_protein.get(i, 0)
                     for i in range(self.num_proteins)
                 ])
-            pr_compound_embeddings = np.reshape(
-                pr_compound_embeddings, (self.num_compounds, 1)
-            )
+            if pr_compound_embeddings is not None:
+                pr_compound_embeddings = np.reshape(
+                    pr_compound_embeddings, (self.num_compounds, 1)
+                )
             pr_protein_embeddings = np.reshape(
                 pr_protein_embeddings, (self.num_proteins, 1)
             )
@@ -1023,6 +1116,10 @@ class HDCTI(herbRecommender):
             self.weights['context_target_herb_residual'] = tf.Variable(
                 tf.zeros([self.emb_size]),
                 name='context_target_herb_residual',
+            )
+        if self.herb_prototype_transfer['enabled']:
+            self.weights['herb_prototype_scale'] = tf.Variable(
+                tf.zeros([1]), name='herb_prototype_scale'
             )
 
         if self.pair_decoder['type'] == 'bilinear':
@@ -1456,9 +1553,10 @@ class HDCTI(herbRecommender):
                     name='pd_edge_to_node_layer_%d' % (i + 1),
                 )
             if self.encoder_profile['use_pagerank']:
-                new_compound_embeddings = (
-                    new_compound_embeddings * pr_compound_embeddings
-                )
+                if pr_compound_embeddings is not None:
+                    new_compound_embeddings = (
+                        new_compound_embeddings * pr_compound_embeddings
+                    )
                 new_protein_embeddings = (
                     new_protein_embeddings * pr_protein_embeddings
                 )
@@ -1775,7 +1873,131 @@ class HDCTI(herbRecommender):
             if self.herb_context_attention['mode'] == 'target_attention':
                 self.u_context_embedding = self.target_herb_context_embedding
 
+        self.herb_prototype_pair_residual = None
+        if self.herb_prototype_transfer['enabled']:
+            self.herb_prototype_pair_residual = (
+                self.buildHerbPrototypePairResidual()
+            )
+
         #self.v_embedding = self.final_pdedge
+
+
+    def buildHerbPrototypePairResidual(self):
+        prototypes = self.herb_prototypes
+        target_counts = tf.constant(
+            np.vstack([
+                prototypes['herb_target_counts'],
+                np.zeros((1, self.num_proteins), dtype=np.float32),
+            ]),
+            dtype=tf.float32,
+        )
+        support_counts = tf.constant(
+            np.concatenate([
+                prototypes['herb_support_counts'],
+                np.zeros(1, dtype=np.float32),
+            ]),
+            dtype=tf.float32,
+        )
+        pair_herbs = tf.gather(
+            tf.constant(self.compound_herb_indices, dtype=tf.int32),
+            self.u_idx,
+        )
+        pair_mask = tf.gather(
+            tf.constant(self.compound_herb_mask, dtype=tf.float32),
+            self.u_idx,
+        )
+        pair_targets = tf.tile(
+            tf.expand_dims(self.v_idx, axis=1),
+            [1, self.max_compound_herbs],
+        )
+        herb_target_indices = tf.stack(
+            [pair_herbs, pair_targets], axis=2
+        )
+        pair_target_counts = tf.gather_nd(
+            target_counts, herb_target_indices
+        )
+        pair_support_counts = tf.gather(support_counts, pair_herbs)
+        pair_compound_supported = tf.gather(
+            tf.constant(
+                prototypes['compound_supported'], dtype=tf.float32
+            ),
+            self.u_idx,
+        )
+        training_edge_keys = np.asarray(
+            prototypes['training_edge_keys'], dtype=np.int64
+        )
+        pair_keys = (
+            tf.cast(self.u_idx, tf.int64)
+            * tf.constant(self.num_proteins, dtype=tf.int64)
+            + tf.cast(self.v_idx, tf.int64)
+        )
+        if training_edge_keys.size:
+            edge_keys = tf.constant(training_edge_keys, dtype=tf.int64)
+            edge_positions = tf.searchsorted(
+                edge_keys, pair_keys, side='left', out_type=tf.int32
+            )
+            safe_positions = tf.minimum(
+                edge_positions,
+                tf.constant(training_edge_keys.size - 1, dtype=tf.int32),
+            )
+            pair_self_positive = tf.cast(
+                tf.logical_and(
+                    edge_positions < training_edge_keys.size,
+                    tf.equal(
+                        tf.gather(edge_keys, safe_positions), pair_keys
+                    ),
+                ),
+                tf.float32,
+            )
+        else:
+            pair_self_positive = tf.zeros_like(
+                self.u_idx, dtype=tf.float32
+            )
+        source_counts = (
+            pair_support_counts
+            - tf.expand_dims(pair_compound_supported, axis=1)
+        )
+        pair_target_counts -= tf.expand_dims(
+            pair_self_positive, axis=1
+        )
+        target_prior = tf.expand_dims(
+            tf.gather(
+                tf.constant(
+                    prototypes['target_prevalence'], dtype=tf.float32
+                ),
+                self.v_idx,
+            ),
+            axis=1,
+        )
+        prior_strength = tf.constant(
+            self.herb_prototype_transfer['prior_strength'],
+            dtype=tf.float32,
+        )
+        valid = pair_mask * tf.cast(source_counts > 0, tf.float32)
+        posterior = (
+            pair_target_counts + prior_strength * target_prior
+        ) / tf.maximum(source_counts + prior_strength, prior_strength)
+        residual = (posterior - target_prior) * valid
+        valid_count = tf.reduce_sum(valid, axis=1)
+        return tf.math.divide_no_nan(
+            tf.reduce_sum(residual, axis=1), valid_count,
+            name='support_calibrated_loco_herb_prototype_residual',
+        )
+
+    def herbPrototypePairResiduals(
+            self, compound_indices, protein_indices,
+            return_diagnostics=False):
+        if not self.herb_prototype_transfer['enabled']:
+            return None
+        return support_calibrated_herb_prototype_scores(
+            self.herb_prototypes,
+            self.compound_herb_indices,
+            self.compound_herb_mask,
+            compound_indices,
+            protein_indices,
+            prior_strength=self.herb_prototype_transfer['prior_strength'],
+            return_diagnostics=return_diagnostics,
+        )
 
 
     def buildBasePairLogits(self, compound_embedding=None, protein_embedding=None):
@@ -1881,6 +2103,11 @@ class HDCTI(herbRecommender):
                     'herb_disease'
                 ]
             logits += herb_disease_logits
+        if self.herb_prototype_transfer['enabled']:
+            logits += (
+                self.weights['herb_prototype_scale'][0]
+                * self.herb_prototype_pair_residual
+            )
         return logits
 
     def supportContextGateValues(self, state, compound_indices):
@@ -2264,6 +2491,10 @@ class HDCTI(herbRecommender):
                     support_state_gates['herb_disease']
                     if support_state_gates is not None else None
                 ),
+                herb_prototype_residual=self.herbPrototypePairResiduals(
+                    compound_indices, protein_indices
+                ),
+                herb_prototype_scale=weights.get('herb_prototype_scale'),
             )
         scores = 1.0 / (1.0 + np.exp(-np.clip(logits, -50, 50)))
         if metric == 'aupr':
@@ -2526,6 +2757,73 @@ class HDCTI(herbRecommender):
         self.i_context = state['protein_context']
         self.herb_edge = state['herb_edge']
         self.weight = state['weights']
+        self.herb_prototype_summary = None
+        if self.herb_prototype_transfer['enabled']:
+            validation_compounds = np.asarray([
+                self.data.compound[str(record[0])]
+                for record in self.validationData
+            ], dtype=np.int64)
+            validation_proteins = np.asarray([
+                self.data.protein[str(record[1])]
+                for record in self.validationData
+            ], dtype=np.int64)
+            validation_labels = np.asarray([
+                float(record[2]) > 0 for record in self.validationData
+            ], dtype=bool)
+            prototype_values, prototype_diagnostics = (
+                self.herbPrototypePairResiduals(
+                    validation_compounds,
+                    validation_proteins,
+                    return_diagnostics=True,
+                )
+            )
+            learned_scale = float(np.asarray(
+                self.weight['herb_prototype_scale']
+            ).reshape(-1)[0])
+            self.herb_prototype_summary = {
+                'mode': self.herb_prototype_transfer['mode'],
+                'prior_strength': self.herb_prototype_transfer[
+                    'prior_strength'
+                ],
+                'replace_compound_pagerank': True,
+                'protein_pagerank_retained': True,
+                'learned_scale': learned_scale,
+                'training_positive_edges': self.herb_prototypes[
+                    'training_positive_edges'
+                ],
+                'supported_compound_count': self.herb_prototypes[
+                    'supported_compound_count'
+                ],
+                'validation': prototype_diagnostics,
+                'positive_mean_residual': (
+                    float(np.mean(prototype_values[validation_labels]))
+                    if np.any(validation_labels) else None
+                ),
+                'negative_mean_residual': (
+                    float(np.mean(prototype_values[~validation_labels]))
+                    if np.any(~validation_labels) else None
+                ),
+            }
+            prototype_path = os.path.join(
+                model_dir, 'herb_prototype_transfer.json'
+            )
+            with open(prototype_path, 'w', encoding='utf-8') as handle:
+                json.dump(
+                    self.herb_prototype_summary,
+                    handle,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                handle.write('\n')
+            print(
+                'Herb prototype transfer: scale=%.6f validation_coverage=%.4f '
+                'mean_abs_residual=%.6f.' % (
+                    learned_scale,
+                    prototype_diagnostics['evidence_coverage'],
+                    prototype_diagnostics['mean_abs_residual'],
+                )
+            )
+            print('Herb prototype metadata: %s' % prototype_path)
         self.global_token_attention_summary = None
         if self.global_token_attention['enabled']:
             layer_summaries = {}
@@ -3096,6 +3394,10 @@ class HDCTI(herbRecommender):
                 support_state_gates['herb_disease']
                 if support_state_gates is not None else None
             ),
+            herb_prototype_residual=self.herbPrototypePairResiduals(
+                compound_indices, protein_indices
+            ),
+            herb_prototype_scale=self.weight.get('herb_prototype_scale'),
         )
 
     def predictForRanking(self):
@@ -3105,6 +3407,7 @@ class HDCTI(herbRecommender):
             decoder_type == 'mlp'
             or self.herb_context_attention['mode'] in TARGET_HERB_ATTENTION_MODES
             or self.support_state_routing['enabled']
+            or self.herb_prototype_transfer['enabled']
         )
         if pairwise_prediction_required:
             scores = np.empty((self.num_compounds, self.num_proteins), dtype=np.float32)

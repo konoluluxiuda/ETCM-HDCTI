@@ -1,0 +1,50 @@
+{
+  "protocol": "schpt_four_dataset_seed52026_five_fold_confirmation_v1",
+  "split_strategy": "compound_cold_start",
+  "split_seed": 52026,
+  "fold_count": 5,
+  "outer_test": true,
+  "datasets": [
+    {
+      "name": "TCM-Suite",
+      "slug": "tcmsuite",
+      "baseline_config": "configs/HDCTI_tcmsuite_schpt_baseline_full.conf",
+      "baseline_sha256": "80ffe66a0793735b9f4c1f34e399ad580b01971d5ebebbd97e9bba3545b56aae",
+      "candidate_config": "configs/HDCTI_tcmsuite_schpt_full.conf",
+      "candidate_sha256": "06a3a689ea28ba0a6753142c88b36458165bfb9b9420022dbf1f54b8bc8664db"
+    },
+    {
+      "name": "TCMSP",
+      "slug": "tcmsp",
+      "baseline_config": "configs/HDCTI_tcmsp_schpt_baseline_full.conf",
+      "baseline_sha256": "4b21b09907295d3ec8a63ad3d6ecdff28b011d3543a36201c8577723d456d4b1",
+      "candidate_config": "configs/HDCTI_tcmsp_schpt_full.conf",
+      "candidate_sha256": "5fc236d42d8b85f1e78374c516124ff77a56accd9055ee55251b131d42121dbb"
+    },
+    {
+      "name": "SymMap2.0",
+      "slug": "symmap",
+      "baseline_config": "configs/HDCTI_symmap_schpt_baseline_full.conf",
+      "baseline_sha256": "bb5a924c511c6354f947ae9798e41be9c665f1d7d699f6ad5a7a475490a335ed",
+      "candidate_config": "configs/HDCTI_symmap_schpt_full.conf",
+      "candidate_sha256": "e129b0efdcfd6810a4d14075fef919008ed71a74fedd182d4a070fd900d7ef9f"
+    },
+    {
+      "name": "ETCM2.0-mention10",
+      "slug": "etcm_mention10",
+      "baseline_config": "configs/HDCTI_etcm_mention10_schpt_baseline_full.conf",
+      "baseline_sha256": "88199fa91be79a9f421a62bd009d869f4bf4c0781f5a1beb9ffb7ea6a16b75ce",
+      "candidate_config": "configs/HDCTI_etcm_mention10_schpt_full.conf",
+      "candidate_sha256": "533c77c55aac3335c8b928a77f912b4ec64013e09f134f10ef68d8dd0c2ad859"
+    }
+  ],
+  "gate": {
+    "minimum_mean_outer_aupr_delta": 0.003,
+    "minimum_positive_dataset_count": 3,
+    "minimum_dataset_outer_aupr_delta": -0.005,
+    "minimum_positive_fold_count": 12,
+    "expected_fold_count": 20,
+    "minimum_evidence_coverage_each_fold": 0.3,
+    "minimum_absolute_learned_scale_each_fold": 1e-06
+  }
+}
