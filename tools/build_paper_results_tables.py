@@ -415,7 +415,7 @@ def collect_cold_external(manifest):
         section['experiment_manifest'], section['experiment_manifest_sha256']
     )
     experiment_manifest, validated_jobs = validate_cold_external_manifest(
-        experiment_manifest_path
+        experiment_manifest_path, require_split_files=False
     )
     results_path = check_file(section['results'], section['sha256'])
     rows = read_tsv(results_path)

@@ -19,7 +19,7 @@ def resolve_path(value):
     return path.resolve()
 
 
-def validate_manifest(manifest_path=DEFAULT_MANIFEST):
+def validate_manifest(manifest_path=DEFAULT_MANIFEST, require_split_files=True):
     manifest_path = resolve_path(manifest_path)
     manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
     if manifest.get('schema_version') != 1:
@@ -102,25 +102,33 @@ def validate_manifest(manifest_path=DEFAULT_MANIFEST):
         split_dir = resolve_path(dataset['split_dir'])
         if resolve_path(config['split.dir']) != split_dir:
             raise ValueError('%s uses the wrong split directory.' % config_path)
-        split_manifest = split_dir / 'manifest.json'
-        if not split_manifest.is_file():
-            raise FileNotFoundError('Missing split manifest: %s' % split_manifest)
-        split = json.loads(split_manifest.read_text(encoding='utf-8'))
-        if split.get('split_strategy') != 'compound_cold_start':
-            raise ValueError('%s is not a compound cold-start split.' % split_manifest)
-        if int(split.get('seed', -1)) != 52026:
-            raise ValueError('%s has the wrong split seed.' % split_manifest)
-        if int(split.get('folds', -1)) != 5:
-            raise ValueError('%s does not contain five folds.' % split_manifest)
-        guarantees = split.get('strict_guarantees', {})
-        if not guarantees.get('compound_disjoint_train_test'):
-            raise ValueError(
-                '%s does not guarantee compound-disjoint folds.' % split_manifest
-            )
-        if not guarantees.get('training_graph_must_use_fold_training_positives'):
-            raise ValueError(
-                '%s does not constrain the fold training graph.' % split_manifest
-            )
+        if require_split_files:
+            split_manifest = split_dir / 'manifest.json'
+            if not split_manifest.is_file():
+                raise FileNotFoundError(
+                    'Missing split manifest: %s' % split_manifest
+                )
+            split = json.loads(split_manifest.read_text(encoding='utf-8'))
+            if split.get('split_strategy') != 'compound_cold_start':
+                raise ValueError(
+                    '%s is not a compound cold-start split.' % split_manifest
+                )
+            if int(split.get('seed', -1)) != 52026:
+                raise ValueError('%s has the wrong split seed.' % split_manifest)
+            if int(split.get('folds', -1)) != 5:
+                raise ValueError('%s does not contain five folds.' % split_manifest)
+            guarantees = split.get('strict_guarantees', {})
+            if not guarantees.get('compound_disjoint_train_test'):
+                raise ValueError(
+                    '%s does not guarantee compound-disjoint folds.'
+                    % split_manifest
+                )
+            if not guarantees.get(
+                    'training_graph_must_use_fold_training_positives'):
+                raise ValueError(
+                    '%s does not constrain the fold training graph.'
+                    % split_manifest
+                )
         validated.append({
             'dataset': dataset['name'],
             'method': method['name'],

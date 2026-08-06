@@ -28,6 +28,10 @@ class ColdStartExternalBaselineConfigTest(unittest.TestCase):
         }
         self.assertEqual(actual, expected)
 
+    def test_config_validation_can_skip_untracked_split_files(self):
+        _, jobs = validate_manifest(MANIFEST, require_split_files=False)
+        self.assertEqual(len(jobs), 16)
+
 
 if __name__ == '__main__':
     unittest.main()

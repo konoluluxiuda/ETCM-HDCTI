@@ -11,25 +11,25 @@
       {
         "method": "Strict-HDCTI",
         "variant": "NoContext",
-        "results": "results/batch_runs/no_dense_hctx_ablation_20260722_164221/results.tsv",
+        "results": "paper_artifacts/results/random_no_context.tsv",
         "sha256": "897711d0a20f6c182dddbf678892ba268a6fb6aceef18fd85b88fc2ff7cbb5dd"
       },
       {
         "method": "Strict-HDCTI + Hctx-P",
         "variant": "Hctx-P",
-        "results": "results/batch_runs/no_dense_chcr_full_20260717_171403/results.tsv",
+        "results": "paper_artifacts/results/random_hctx_chcr.tsv",
         "sha256": "dad58154867b3628a08431af69c4d9e225eff889d92d761a80d56ab8fb955e35"
       },
       {
         "method": "Strict-HDCTI + Hctx-P + CHCR",
         "variant": "Hctx-P+CHCR",
-        "results": "results/batch_runs/no_dense_chcr_full_20260717_171403/results.tsv",
+        "results": "paper_artifacts/results/random_hctx_chcr.tsv",
         "sha256": "dad58154867b3628a08431af69c4d9e225eff889d92d761a80d56ab8fb955e35"
       }
     ]
   },
   "external_same_input": {
-    "results": "results/batch_runs/external_baselines_full_20260728_152020/results.tsv",
+    "results": "paper_artifacts/results/random_external_baselines.tsv",
     "sha256": "bf03faffbec11ad809f4b63f418d45c6ad2c66c7df973ffbae48472eb4095770",
     "reference_method": "R-GCN-CTI",
     "methods": [
@@ -62,7 +62,7 @@
       },
       {
         "method": "HGT-CTI",
-        "results": "results/batch_runs/hgt_cti_full_20260728_181436/results.tsv",
+        "results": "paper_artifacts/results/random_hgt.tsv",
         "sha256": "64cff4189c0a8b7166b4d27dadac9097a17eff320c96066581a0eb9b50776a64",
         "required": {
           "model.name": "HGTCTI",
@@ -77,11 +77,11 @@
     ]
   },
   "compound_cold_start": {
-    "no_context_results": "results/batch_runs/cold_start_hctx_ablation_20260730_133133/results.tsv",
+    "no_context_results": "paper_artifacts/results/cold_no_context.tsv",
     "no_context_sha256": "2fec5c8fbc21aa6d3f4607f5a74d1e1976f7be35e05f2f2dd9241bccbd7f2183",
-    "fixed_results": "results/batch_runs/sdis_full_20260718_212240/results.tsv",
+    "fixed_results": "paper_artifacts/results/cold_hctx_sdis.tsv",
     "fixed_sha256": "7ff2251f39d50a339f86ad03a86a27035979800432aafbb2e64329f3f75b93b0",
-    "calibrated_results": "results/batch_runs/sdis_full_20260718_212240/calibration/results.tsv",
+    "calibrated_results": "paper_artifacts/results/cold_calibration.tsv",
     "calibrated_sha256": "416d9182fcbe04938665acc8bcf404c75323f70a038390b829b872a06bb3b931",
     "methods": [
       {
@@ -100,17 +100,17 @@
     ]
   },
   "support_state_five_unit": {
-    "summary": "results/batch_runs/frozen_base_hctx_router_repeated_outer_20260804_132807/five_unit_summary.json",
+    "summary": "paper_artifacts/results/support_state_five_unit.json",
     "sha256": "8d76d7f237d21bf8199b8b5012dc3d161019a9bab5a3ae2b725f0bf2592327a1",
     "role": "descriptive_c0p0_through_c4p4; confirmatory_gate_uses_only_c1p1_through_c4p4"
   },
   "schpt_full": {
-    "summary": "results/batch_runs/schpt_full_20260805_152323/summary.json",
+    "summary": "paper_artifacts/results/schpt_full.json",
     "sha256": "4687d84d6a998bed4a8b69f856072f647af05fd9af0ddf94f5c839732d6298be",
     "protocol": "schpt_four_dataset_seed52026_five_fold_confirmation_v1"
   },
   "compound_cold_start_external": {
-    "results": "results/batch_runs/cold_start_external_baselines_full_20260806_134426/results.tsv",
+    "results": "paper_artifacts/results/cold_external_baselines.tsv",
     "sha256": "98a41b7581591f4b29b849aa29f98230c82f2f36474408bd0a5565b6b4458016",
     "experiment_manifest": "configs/cold_start_external_baselines_manifest.json",
     "experiment_manifest_sha256": "9cf613b4f65b076a413754b019eac67d7f77a1ff02b76a07dd70fd3f49e0b510",

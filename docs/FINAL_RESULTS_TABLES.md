@@ -198,13 +198,13 @@ Ours-full 的四库 macro AUPR 高于统一的最强单一外部基线 `Dual-HGN
 
 ## 16. 冻结来源
 
-- `/home/zry/workspace/HDCTI/results/batch_runs/no_dense_hctx_ablation_20260722_164221/results.tsv`
-- `/home/zry/workspace/HDCTI/results/batch_runs/no_dense_chcr_full_20260717_171403/results.tsv`
-- `/home/zry/workspace/HDCTI/results/batch_runs/external_baselines_full_20260728_152020/results.tsv`
-- `/home/zry/workspace/HDCTI/results/batch_runs/hgt_cti_full_20260728_181436/results.tsv`
-- `/home/zry/workspace/HDCTI/results/batch_runs/cold_start_hctx_ablation_20260730_133133/results.tsv`
-- `/home/zry/workspace/HDCTI/results/batch_runs/sdis_full_20260718_212240/results.tsv`
-- `/home/zry/workspace/HDCTI/results/batch_runs/sdis_full_20260718_212240/calibration/results.tsv`
-- `/home/zry/workspace/HDCTI/results/batch_runs/cold_start_external_baselines_full_20260806_134426/results.tsv`
-- `/home/zry/workspace/HDCTI/results/batch_runs/frozen_base_hctx_router_repeated_outer_20260804_132807/five_unit_summary.json`
-- `/home/zry/workspace/HDCTI/results/batch_runs/schpt_full_20260805_152323/summary.json`
+- `/home/zry/workspace/HDCTI/paper_artifacts/results/random_no_context.tsv`
+- `/home/zry/workspace/HDCTI/paper_artifacts/results/random_hctx_chcr.tsv`
+- `/home/zry/workspace/HDCTI/paper_artifacts/results/random_external_baselines.tsv`
+- `/home/zry/workspace/HDCTI/paper_artifacts/results/random_hgt.tsv`
+- `/home/zry/workspace/HDCTI/paper_artifacts/results/cold_no_context.tsv`
+- `/home/zry/workspace/HDCTI/paper_artifacts/results/cold_hctx_sdis.tsv`
+- `/home/zry/workspace/HDCTI/paper_artifacts/results/cold_calibration.tsv`
+- `/home/zry/workspace/HDCTI/paper_artifacts/results/cold_external_baselines.tsv`
+- `/home/zry/workspace/HDCTI/paper_artifacts/results/support_state_five_unit.json`
+- `/home/zry/workspace/HDCTI/paper_artifacts/results/schpt_full.json`
