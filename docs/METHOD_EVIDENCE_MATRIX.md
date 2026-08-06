@@ -27,6 +27,11 @@
 
 ## 3. 冻结方法结构
 
+> 2026-08-05 最终冻结口径见
+> [FINAL_METHOD_SPECIFICATION.md](FINAL_METHOD_SPECIFICATION.md)。本节中的随机边
+> CHCR 仅为补充实验；最终 `Ours-full` 是 compound cold-start 下的
+> `Hctx-P + SDIS + SCHPT`。
+
 ### 3.1 共享骨干
 
 ```text
@@ -56,14 +61,22 @@ CHCR 只改变训练目标：对已知训练正样本构造同 H-C degree 的反
 ### 3.3 Strict compound cold-start 配置
 
 ```text
-共享骨干 + SDIS
+共享骨干 + SDIS + SCHPT
 ```
 
 当训练折中 compound 的 C-P 正边支持度为 0，且存在可用 H-C 上下文时，SDIS 确定性关闭不可靠的 compound-ID 基础分。该规则只依赖训练支持状态，不按数据库或测试结果切换。
 
-### 3.4 禁止的伪统一配置
+SCHPT 使用训练折 C-P 正边构建 leave-one-compound-out 药材靶点原型，以一个
+从 0 初始化的残差标量替换 compound 侧 C-P PageRank；protein 侧 P-D PageRank
+保持不变。该配置已通过四库完整五折冻结 Gate。
+
+### 3.4 历史禁止配置与当前统一配置
 
 `Hctx-P + CHCR + SDIS` 不是最终 `Ours-full`。冻结 cold-start 组合实验中，TCM-Suite AUPR 下降 `0.019451`，超过预注册最大退化 `0.005`。为解决共享上下文参数的 warm/cold 负迁移，唯一重新开放的 SCHE 双专家 Pilot 也未通过：TCM-Suite fold 1 GPU inner-validation AUPR 为 `0.650499`，低于冻结 SDIS 的 `0.669984`。因此论文必须按任务协议分别报告 CHCR 和 SDIS，不再搜索统一门控或专家结构。
+
+最终统一不是上述组合，而是同一 cold-start 配置中的
+`Hctx-P + SDIS + SCHPT`。SCHPT 替换原 PageRank 组件，不使用 CHCR，也不按
+评价场景选择参数。
 
 ## 4. 核心主张证据矩阵
 
@@ -76,6 +89,7 @@ CHCR 只改变训练目标：对已知训练正样本构造同 H-C degree 的反
 | M2-S | CHCR 支持度边界 | CHCR/Hctx-P 的上下文可靠性受 H-C 与训练 C-P 支持度调节 | SymMap 在 `H-C degree=1`、训练 `C-P degree=0/1-2` 方向不一致；TCM-Suite 在训练 `C-P degree=1-2/3-5` 也不稳定 | C | 这是失败模式定位，不等于已经实现或验证自适应路由 | [CHCR_DONOR_CONTROLS](CHCR_DONOR_CONTROLS.md) |
 | M3-P | SDIS 排序贡献 | SDIS 改善 compound cold-start 下零训练 C-P 支持实体的归纳排序 | 四库五折 AUPR 增量 `+0.059305/+0.022891/+0.012215/+0.017686`，macro `+0.028024`，20/20 folds 提高 | A | 只适用于 compound cold-start；不是普通随机边默认模块 | [SELF_EXCLUDED_HERB_CONTEXT_AUDIT](SELF_EXCLUDED_HERB_CONTEXT_AUDIT.md) |
 | M3-C | SDIS 校准分类 | 固定 0.5 阈值下的 F1 下降主要来自分数尺度变化，inner-validation 阈值可恢复分类表现 | 纯推理阈值校准后四库 F1 均提高，macro `+0.029535`，20/20 folds 提高 | A/C | 校准阈值必须逐折仅由 inner-validation 选择；固定 0.5 结果仍需披露 | [SELF_EXCLUDED_HERB_CONTEXT_AUDIT](SELF_EXCLUDED_HERB_CONTEXT_AUDIT.md) |
+| M4 | SCHPT PageRank 替代 | 折内 H-C→C-P 药材靶点原型可替代候选无关的 compound C-P PageRank，并进一步改善 compound cold-start 排序 | 相对 Hctx-P+SDIS 的四库 outer AUPR 增量 `+0.003758/+0.017766/+0.030323/+0.011878`，macro `+0.015931`；4/4 数据库、17/20 folds 为正 | A | TCM-Suite 仅 2/5 folds 为正；只覆盖 compound cold-start，不外推 target/double-cold | [SCHPT_PILOT_PROTOCOL](SCHPT_PILOT_PROTOCOL.md)、[最终方法规格](FINAL_METHOD_SPECIFICATION.md) |
 | F1 | 场景化双配置证据 | CHCR 与 SDIS 分别说明随机边上下文正则和 cold-start 支持度失配 | 两套四库冻结协议；组合实验显式 No-Go | 补充 | 作者已决定双配置不构成最终统一方法，不能写为 `Ours-full` 或核心框架贡献 | [最终方法统一性决策](UNIFIED_METHOD_DIRECTION.md)、[SELF_EXCLUDED_HERB_CONTEXT_AUDIT](SELF_EXCLUDED_HERB_CONTEXT_AUDIT.md) |
 | C1 | SCHE 统一候选 | 独立 warm/cold Hctx-P 参数与逐样本支持度路由未能消除共享参数冲突 | TCM-Suite cold-start fold 1 GPU inner-validation AUPR `0.650499`，低于冻结 SDIS `0.669984`，差值 `-0.019485`；CPU 复现为 `0.650017` | No-Go | 不进入四库，不搜索 ratio、seed、margin、weight、soft gate 或数据库特定参数；不能写入最终贡献 | [SUPPORT_CONDITIONED_DUAL_EXPERT](SUPPORT_CONDITIONED_DUAL_EXPERT.md) |
 | C2 | 支持掩码 episodic training | 用 warm compound 制造零 C-P 支持的 pseudo-cold episode 具有工程合理性，但不能作为独立新机制 | DropoutNet、PT-GNN 和 CGRC 已分别覆盖协同输入 dropout、warm-to-cold episode 与全交互边掩码重建；CLCRec/ALDI 覆盖对比和蒸馏变体 | No-Go（创新性） | 不实现、不进入 Pilot；若后续作为训练技巧使用，必须引用近邻工作并降级表述 | [SUPPORT_MASKED_EPISODIC_AUDIT](SUPPORT_MASKED_EPISODIC_AUDIT.md) |

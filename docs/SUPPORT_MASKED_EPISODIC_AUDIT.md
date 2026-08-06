@@ -1,5 +1,10 @@
 # 支持掩码 Episodic 训练近邻工作审计
 
+> **历史状态说明**：本审计关于支持掩码候选的 No-Go 仍有效；文中“最终方法
+> 暂时保留 Hctx-P + SDIS”是 2026-07-29 的阶段性记录。SCHPT 后的最终模型为
+> `Hctx-P + SDIS + SCHPT`，见
+> [最终方法冻结规格](FINAL_METHOD_SPECIFICATION.md)。
+
 ## 1. 审计结论
 
 截至 2026-07-29，原计划中的“共享 Hctx-P head + 支持掩码 episodic

@@ -103,5 +103,10 @@
     "summary": "results/batch_runs/frozen_base_hctx_router_repeated_outer_20260804_132807/five_unit_summary.json",
     "sha256": "8d76d7f237d21bf8199b8b5012dc3d161019a9bab5a3ae2b725f0bf2592327a1",
     "role": "descriptive_c0p0_through_c4p4; confirmatory_gate_uses_only_c1p1_through_c4p4"
+  },
+  "schpt_full": {
+    "summary": "results/batch_runs/schpt_full_20260805_152323/summary.json",
+    "sha256": "4687d84d6a998bed4a8b69f856072f647af05fd9af0ddf94f5c839732d6298be",
+    "protocol": "schpt_four_dataset_seed52026_five_fold_confirmation_v1"
   }
 }

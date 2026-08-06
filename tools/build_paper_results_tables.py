@@ -376,6 +376,26 @@ def collect_support_state_five_unit(manifest):
     return summary
 
 
+def collect_schpt_full(manifest):
+    section = manifest.get('schpt_full')
+    if not section:
+        return None
+    path = check_file(section['summary'], section['sha256'])
+    summary = json.loads(path.read_text(encoding='utf-8'))
+    if summary.get('protocol') != section['protocol']:
+        raise ValueError('Unexpected SCHPT summary protocol.')
+    if summary.get('gate') != 'PASS':
+        raise ValueError('SCHPT full confirmation Gate is not PASS.')
+    if len(summary.get('rows') or []) != 4:
+        raise ValueError('SCHPT summary must contain four datasets.')
+    if summary.get('fold_count') != 20:
+        raise ValueError('SCHPT summary must contain twenty paired folds.')
+    if not all(summary.get('checks', {}).values()):
+        raise ValueError('At least one SCHPT frozen Gate check failed.')
+    summary['_source'] = str(path)
+    return summary
+
+
 def markdown_metric(row, metric):
     return format_summary(row[metric], row[metric + '_std'])
 
@@ -474,9 +494,47 @@ def support_state_table(title, summary):
     return lines
 
 
+def schpt_table(title, summary):
+    lines = [
+        '## %s' % title,
+        '',
+        '| 数据集 | Baseline AUC | Ours-full AUC | Baseline AUPR | '
+        'Ours-full AUPR | AUPR 增量 | 正向 folds |',
+        '|---|---:|---:|---:|---:|---:|---:|',
+    ]
+    for row in summary['rows']:
+        lines.append(
+            '| %s | %.6f | %.6f | %.6f | %.6f | %+.6f | %d/5 |'
+            % (
+                row['dataset'],
+                row['baseline_metrics']['AUC'],
+                row['candidate_metrics']['AUC'],
+                row['baseline_metrics']['AUPR'],
+                row['candidate_metrics']['AUPR'],
+                row['outer_aupr_delta'],
+                row['positive_fold_count'],
+            )
+        )
+    lines.extend([
+        '| **Macro delta** | - | - | - | - | **%+.6f** | **%d/%d** |'
+        % (
+            summary['mean_outer_aupr_delta'],
+            summary['positive_fold_count'],
+            summary['fold_count'],
+        ),
+        '',
+        'Ours-full 使用 `Hctx-P + SDIS + SCHPT`。Baseline 使用相同 seed、'
+        'compound cold-start folds、Hctx-P、SDIS 和 inner-validation AUPR '
+        '早停；唯一方法差异是 SCHPT 以支持度校准 LOCO 药材靶点原型替换 '
+        'compound C-P PageRank。预注册 Gate 全部通过。TCM-Suite 仅 `2/5` '
+        'folds 为正，因此该结果支持跨库总体增益，不支持逐 fold 单调提升主张。',
+    ])
+    return lines
+
+
 def build_markdown(
         manifest, random_rows, cold_rows, calibrated_rows,
-        external_rows=None, support_state_summary=None):
+        external_rows=None, support_state_summary=None, schpt_summary=None):
     datasets = manifest['datasets']
     random_methods = [item['method'] for item in manifest['random_edge']['sources']]
     cold_methods = [
@@ -591,6 +649,13 @@ def build_markdown(
             support_state_summary,
         ))
         section += 1
+    if schpt_summary is not None:
+        lines.extend([''])
+        lines.extend(schpt_table(
+            '%d. 最终 Ours-full compound cold-start 五折确认' % section,
+            schpt_summary,
+        ))
+        section += 1
     lines.extend([
         '',
         '## %d. 解释边界' % section,
@@ -603,7 +668,8 @@ def build_markdown(
         '- 最终随机边模型相对 R-GCN-CTI 在 SymMap2.0 和 ETCM2.0 mention10'
         ' 取得更高 AUPR，在 TCMSP 基本持平，在 TCM-Suite 略低；不能声称'
         '四库全部最优。',
-        '- Cold-start 主配置为 `Hctx-P + SDIS`；AUC/AUPR 与阈值无关。',
+        '- Cold-start 最终主配置为 `Hctx-P + SDIS + SCHPT`；其中 SCHPT'
+        ' 替换 compound C-P PageRank，AUC/AUPR 与阈值无关。',
         '- Cold-start 固定 `0.5` 阈值与 inner-validation 阈值必须同时报告。',
         '- Compound cold-start 下 Hctx-P 相对 NoContext 的四库 AUPR 增量'
         '均为正，macro 增量为 `+0.437826`；该结果只适用于具有 H-C 侧信息'
@@ -612,6 +678,8 @@ def build_markdown(
         '不与已校准的 Hctx-P/SDIS 分类指标混合比较。',
         '- 支持状态五单元表中的历史 `c0p0` 只用于描述性汇总；V3 的确认性'
         '结论来自预注册的 16 个新 outer units，不能混写为 20 单元预注册 Gate。',
+        '- SCHPT 四库平均 AUPR 增量和 17/20 正向 folds 通过预注册 Gate；'
+        'TCM-Suite 的 fold 异质性必须在讨论中披露。',
         '',
         '## %d. 冻结来源' % (section + 1),
         '',
@@ -624,6 +692,8 @@ def build_markdown(
             support_state_summary is not None
             and support_state_summary.get('_source')):
         seen.append(support_state_summary['_source'])
+    if schpt_summary is not None and schpt_summary.get('_source'):
+        seen.append(schpt_summary['_source'])
     lines.extend('- `%s`' % path for path in seen)
     lines.append('')
     return '\n'.join(lines)
@@ -640,6 +710,7 @@ def generate(manifest_path, output_path):
     external_rows = collect_external(manifest)
     cold_rows, calibrated_rows = collect_cold_start(manifest)
     support_state_summary = collect_support_state_five_unit(manifest)
+    schpt_summary = collect_schpt_full(manifest)
     output_path = repository_path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
@@ -650,6 +721,7 @@ def generate(manifest_path, output_path):
             calibrated_rows,
             external_rows=external_rows,
             support_state_summary=support_state_summary,
+            schpt_summary=schpt_summary,
         ),
         encoding='utf-8',
     )

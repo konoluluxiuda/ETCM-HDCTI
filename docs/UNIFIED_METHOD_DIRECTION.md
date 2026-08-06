@@ -1,5 +1,28 @@
 # 最终方法统一性决策
 
+> **状态更新（2026-08-05）**：本文记录的是 SCHPT 完成前对场景化双配置的
+> No-Go 决策，历史判断仍有效，但“最终模型只有 Hctx-P + SDIS”已被后续冻结
+> 证据取代。当前唯一最终模型为 `Hctx-P + SDIS + SCHPT`，统一服务于
+> side-information-assisted compound cold-start。权威定义见
+> [最终方法冻结规格](FINAL_METHOD_SPECIFICATION.md)。CHCR 仍不进入最终模型。
+
+## 0. SCHPT 后的最终决策
+
+SCHPT 已在同一 compound cold-start 配置中替换 compound 侧 C-P PageRank，
+并通过四库五折冻结 Gate：平均 outer AUPR 增量 `+0.015931`，4/4 数据库、
+17/20 folds 为正。因此此前“缺少第三个可联合算法模块”的问题已经关闭：
+
+```text
+H-C / P-D 双超图
++ Hctx-P
++ SDIS
++ SCHPT（替换 compound C-P PageRank）
++ Dot
+```
+
+该新结论不推翻本文件对 `Hctx-P+CHCR+SDIS`、SCHE 和其他场景化拼接方案的
+否定。它通过替换原组件而不是追加另一套场景配置，形成了唯一训练和推理算法。
+
 ## 1. 决策
 
 截至 2026-07-30，不能将

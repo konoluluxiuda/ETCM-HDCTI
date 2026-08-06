@@ -107,6 +107,21 @@ class PaperResultsTablesTest(unittest.TestCase):
                 for dataset in datasets
             ],
         }
+        schpt_summary = {
+            'mean_outer_aupr_delta': 0.02,
+            'positive_fold_count': 17,
+            'fold_count': 20,
+            'rows': [
+                {
+                    'dataset': dataset,
+                    'baseline_metrics': {'AUC': 0.7, 'AUPR': 0.7},
+                    'candidate_metrics': {'AUC': 0.72, 'AUPR': 0.72},
+                    'outer_aupr_delta': 0.02,
+                    'positive_fold_count': 4,
+                }
+                for dataset in datasets
+            ],
+        }
 
         markdown = build_markdown(
             manifest,
@@ -115,6 +130,7 @@ class PaperResultsTablesTest(unittest.TestCase):
             calibrated_rows,
             external_rows=external_rows,
             support_state_summary=support_state_summary,
+            schpt_summary=schpt_summary,
         )
 
         self.assertIn('普通 Strict 随机边五折', markdown)
@@ -126,6 +142,8 @@ class PaperResultsTablesTest(unittest.TestCase):
         self.assertIn('Compound cold-start Hctx-P 直接消融', markdown)
         self.assertIn('支持状态五单元描述性结果', markdown)
         self.assertIn('20 单元总体 Macro-AUPR 增量', markdown)
+        self.assertIn('最终 Ours-full compound cold-start 五折确认', markdown)
+        self.assertIn('Hctx-P + SDIS + SCHPT', markdown)
         self.assertIn('**+0.010000**', markdown)
         self.assertNotIn('NoContext 完整五折尚不存在', markdown)
 

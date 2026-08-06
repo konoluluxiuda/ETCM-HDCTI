@@ -148,20 +148,17 @@
 
 20 单元总体 Macro-AUPR 增量为 `+0.103993 (±0.035613)`。该表包含历史 `c0p0`，仅作描述性汇总；预注册确认 Gate 只使用 `c1p1-c4p4` 的 16 个新单元。
 
-## 12. SCHPT compound cold-start 五折确认
+## 12. 最终 Ours-full compound cold-start 五折确认
 
-| 数据集 | Baseline AUC | SCHPT AUC | Baseline AUPR | SCHPT AUPR | AUPR 增量 | 正向 folds |
+| 数据集 | Baseline AUC | Ours-full AUC | Baseline AUPR | Ours-full AUPR | AUPR 增量 | 正向 folds |
 |---|---:|---:|---:|---:|---:|---:|
 | TCM-Suite | 0.729913 | 0.730069 | 0.717960 | 0.721718 | +0.003758 | 2/5 |
 | TCMSP | 0.944074 | 0.952025 | 0.939557 | 0.957323 | +0.017766 | 5/5 |
 | SymMap2.0 | 0.803038 | 0.818680 | 0.807284 | 0.837607 | +0.030323 | 5/5 |
-| ETCM2.0 mention10 | 0.918210 | 0.926106 | 0.901777 | 0.913655 | +0.011878 | 5/5 |
+| ETCM2.0-mention10 | 0.918210 | 0.926106 | 0.901777 | 0.913655 | +0.011878 | 5/5 |
 | **Macro delta** | - | - | - | - | **+0.015931** | **17/20** |
 
-SCHPT 与 Baseline 使用 seed `52026` 的同一 compound cold-start 五折、相同
-Hctx-P + SDIS 骨干和 inner-validation AUPR 早停；唯一方法差异是以支持度校准
-LOCO 药材靶点原型替换 compound C-P PageRank。预注册 Gate 全部通过。TCM-Suite
-仅 `2/5` folds 为正，因此结果支持跨库总体增益，不支持逐 fold 单调提升主张。
+Ours-full 使用 `Hctx-P + SDIS + SCHPT`。Baseline 使用相同 seed、compound cold-start folds、Hctx-P、SDIS 和 inner-validation AUPR 早停；唯一方法差异是 SCHPT 以支持度校准 LOCO 药材靶点原型替换 compound C-P PageRank。预注册 Gate 全部通过。TCM-Suite 仅 `2/5` folds 为正，因此该结果支持跨库总体增益，不支持逐 fold 单调提升主张。
 
 ## 13. 解释边界
 
@@ -169,7 +166,7 @@ LOCO 药材靶点原型替换 compound C-P PageRank。预注册 Gate 全部通�
 - 4 种外部方法是共享匿名拓扑输入和 BCE 监督的适配基线，不是原论文属性模型的原样复现。
 - HGT-CTI 采用四库统一的每关系/目标节点 64 入邻居上限；其 ETCM 结果不能解释为无采样完整 HGT 的性能。
 - 最终随机边模型相对 R-GCN-CTI 在 SymMap2.0 和 ETCM2.0 mention10 取得更高 AUPR，在 TCMSP 基本持平，在 TCM-Suite 略低；不能声称四库全部最优。
-- Cold-start 主配置为 `Hctx-P + SDIS`；AUC/AUPR 与阈值无关。
+- Cold-start 最终主配置为 `Hctx-P + SDIS + SCHPT`；其中 SCHPT 替换 compound C-P PageRank，AUC/AUPR 与阈值无关。
 - Cold-start 固定 `0.5` 阈值与 inner-validation 阈值必须同时报告。
 - Compound cold-start 下 Hctx-P 相对 NoContext 的四库 AUPR 增量均为正，macro 增量为 `+0.437826`；该结果只适用于具有 H-C 侧信息的 compound cold-start。
 - NoContext 未执行事后阈值校准；其固定 `0.5` 分类指标仅用于完整披露，不与已校准的 Hctx-P/SDIS 分类指标混合比较。
