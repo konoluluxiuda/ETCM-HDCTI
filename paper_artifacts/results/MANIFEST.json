@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "source_plan": "configs/paper_result_bundle_sources.json",
+  "source_plan_sha256": "532f1cd29d5f644b0797297fda0c8a9a581793d370e5bc6e2c963bf4d0a16adf",
+  "files": [
+    {
+      "name": "random_no_context",
+      "path": "paper_artifacts/results/random_no_context.tsv",
+      "sha256": "897711d0a20f6c182dddbf678892ba268a6fb6aceef18fd85b88fc2ff7cbb5dd",
+      "original_source": "results/batch_runs/no_dense_hctx_ablation_20260722_164221/results.tsv",
+      "size_bytes": 1860
+    },
+    {
+      "name": "random_hctx_chcr",
+      "path": "paper_artifacts/results/random_hctx_chcr.tsv",
+      "sha256": "dad58154867b3628a08431af69c4d9e225eff889d92d761a80d56ab8fb955e35",
+      "original_source": "results/batch_runs/no_dense_chcr_full_20260717_171403/results.tsv",
+      "size_bytes": 3500
+    },
+    {
+      "name": "random_external_baselines",
+      "path": "paper_artifacts/results/random_external_baselines.tsv",
+      "sha256": "bf03faffbec11ad809f4b63f418d45c6ad2c66c7df973ffbae48472eb4095770",
+      "original_source": "results/batch_runs/external_baselines_full_20260728_152020/results.tsv",
+      "size_bytes": 4445
+    },
+    {
+      "name": "random_hgt",
+      "path": "paper_artifacts/results/random_hgt.tsv",
+      "sha256": "64cff4189c0a8b7166b4d27dadac9097a17eff320c96066581a0eb9b50776a64",
+      "original_source": "results/batch_runs/hgt_cti_full_20260728_181436/results.tsv",
+      "size_bytes": 1424
+    },
+    {
+      "name": "cold_no_context",
+      "path": "paper_artifacts/results/cold_no_context.tsv",
+      "sha256": "2fec5c8fbc21aa6d3f4607f5a74d1e1976f7be35e05f2f2dd9241bccbd7f2183",
+      "original_source": "results/batch_runs/cold_start_hctx_ablation_20260730_133133/results.tsv",
+      "size_bytes": 1573
+    },
+    {
+      "name": "cold_hctx_sdis",
+      "path": "paper_artifacts/results/cold_hctx_sdis.tsv",
+      "sha256": "7ff2251f39d50a339f86ad03a86a27035979800432aafbb2e64329f3f75b93b0",
+      "original_source": "results/batch_runs/sdis_full_20260718_212240/results.tsv",
+      "size_bytes": 2867
+    },
+    {
+      "name": "cold_calibration",
+      "path": "paper_artifacts/results/cold_calibration.tsv",
+      "sha256": "416d9182fcbe04938665acc8bcf404c75323f70a038390b829b872a06bb3b931",
+      "original_source": "results/batch_runs/sdis_full_20260718_212240/calibration/results.tsv",
+      "size_bytes": 5356
+    },
+    {
+      "name": "support_state_five_unit",
+      "path": "paper_artifacts/results/support_state_five_unit.json",
+      "sha256": "8d76d7f237d21bf8199b8b5012dc3d161019a9bab5a3ae2b725f0bf2592327a1",
+      "original_source": "results/batch_runs/frozen_base_hctx_router_repeated_outer_20260804_132807/five_unit_summary.json",
+      "size_bytes": 16900
+    },
+    {
+      "name": "schpt_full",
+      "path": "paper_artifacts/results/schpt_full.json",
+      "sha256": "4687d84d6a998bed4a8b69f856072f647af05fd9af0ddf94f5c839732d6298be",
+      "original_source": "results/batch_runs/schpt_full_20260805_152323/summary.json",
+      "size_bytes": 8713
+    },
+    {
+      "name": "cold_external_baselines",
+      "path": "paper_artifacts/results/cold_external_baselines.tsv",
+      "sha256": "98a41b7581591f4b29b849aa29f98230c82f2f36474408bd0a5565b6b4458016",
+      "original_source": "results/batch_runs/cold_start_external_baselines_full_20260806_134426/results.tsv",
+      "size_bytes": 6127
+    }
+  ]
+}

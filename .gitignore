@@ -4,6 +4,8 @@ dataset/
 
 saved_model/
 results/
+!paper_artifacts/results/
+!paper_artifacts/results/**
 log/
 __pycache__/
 base/__pycache__/
