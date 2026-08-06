@@ -4,6 +4,7 @@ import csv
 import hashlib
 import json
 import re
+import statistics
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -14,6 +15,9 @@ if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from tools.validate_hctx_ablation_configs import parse_config
+from tools.validate_cold_start_external_baselines import (
+    validate_manifest as validate_cold_external_manifest,
+)
 
 
 DEFAULT_MANIFEST = REPOSITORY_ROOT / 'configs' / 'paper_results_manifest.json'
@@ -64,6 +68,13 @@ def format_signed_summary(mean, std):
     if std is None:
         return '%+.6f' % mean
     return '%+.6f (±%.6f)' % (mean, std)
+
+
+def canonical_dataset_name(name):
+    aliases = {
+        'ETCM2.0-mention10': 'ETCM2.0 mention10',
+    }
+    return aliases.get(name, name)
 
 
 def check_file(path, expected_hash):
@@ -396,6 +407,54 @@ def collect_schpt_full(manifest):
     return summary
 
 
+def collect_cold_external(manifest):
+    section = manifest.get('compound_cold_start_external')
+    if not section:
+        return [], None
+    experiment_manifest_path = check_file(
+        section['experiment_manifest'], section['experiment_manifest_sha256']
+    )
+    experiment_manifest, validated_jobs = validate_cold_external_manifest(
+        experiment_manifest_path
+    )
+    results_path = check_file(section['results'], section['sha256'])
+    rows = read_tsv(results_path)
+    result_dataset_names = section.get('dataset_names', {})
+    job_index = {
+        (job['dataset'], job['method']): job for job in validated_jobs
+    }
+    collected = []
+    for dataset in manifest['datasets']:
+        result_dataset = result_dataset_names.get(dataset, dataset)
+        for method in experiment_manifest['methods']:
+            row = unique_method_row(rows, result_dataset, method['name'])
+            frozen_job = job_index[(result_dataset, method['name'])]
+            if row['config'] != frozen_job['config']:
+                raise ValueError(
+                    'Cold-start result config differs from the frozen job.'
+                )
+            if row['config_sha256'] != frozen_job['sha256']:
+                raise ValueError(
+                    'Cold-start result config hash differs from the manifest.'
+                )
+            collected.append(dict(
+                protocol='compound_cold_start_external',
+                dataset=dataset,
+                method=method['name'],
+                source=str(results_path),
+                config=str(repository_path(row['config'])),
+                **metric_record(row)
+            ))
+    metadata = {
+        'methods': [method['name'] for method in experiment_manifest['methods']],
+        'reference_method': section['reference_method'],
+        'experiment_manifest': str(experiment_manifest_path),
+    }
+    if metadata['reference_method'] not in metadata['methods']:
+        raise ValueError('Cold-start reference method is not in the manifest.')
+    return collected, metadata
+
+
 def markdown_metric(row, metric):
     return format_summary(row[metric], row[metric + '_std'])
 
@@ -532,9 +591,125 @@ def schpt_table(title, summary):
     return lines
 
 
+def cold_external_aupr_table(
+        title, external_rows, external_metadata, schpt_summary, datasets):
+    methods = external_metadata['methods']
+    external_index = {
+        (row['dataset'], row['method']): row for row in external_rows
+    }
+    ours_index = {
+        canonical_dataset_name(row['dataset']): row
+        for row in schpt_summary['rows']
+    }
+    lines = [
+        '## %s' % title,
+        '',
+        '| 数据集 | %s | Ours-full | 排名 |' % ' | '.join(methods),
+        '|---|%s---:|---:|' % ('---:|' * len(methods)),
+    ]
+    method_macro = defaultdict(float)
+    ours_macro = 0.0
+    for dataset in datasets:
+        method_values = [
+            external_index[(dataset, method)]['AUPR'] for method in methods
+        ]
+        ours_row = ours_index[dataset]
+        ours = ours_row['candidate_metrics']['AUPR']
+        ours_std = statistics.pstdev(ours_row['candidate_fold_aupr'])
+        all_values = method_values + [ours]
+        best = max(all_values)
+        rank = 1 + sum(value > ours for value in method_values)
+        cells = []
+        for method, value in zip(methods, method_values):
+            row = external_index[(dataset, method)]
+            rendered = format_summary(value, row['AUPR_std'])
+            if value == best:
+                rendered = '**%s**' % rendered
+            cells.append(rendered)
+            method_macro[method] += value / len(datasets)
+        ours_rendered = format_summary(ours, ours_std)
+        if ours == best:
+            ours_rendered = '**%s**' % ours_rendered
+        ours_macro += ours / len(datasets)
+        lines.append('| %s | %s | %s | %d/%d |' % (
+            dataset, ' | '.join(cells), ours_rendered, rank,
+            len(methods) + 1,
+        ))
+    macro_values = [method_macro[method] for method in methods]
+    macro_best = max(macro_values + [ours_macro])
+    macro_cells = [
+        ('**%.6f**' % value) if value == macro_best else '%.6f' % value
+        for value in macro_values
+    ]
+    ours_macro_rendered = (
+        '**%.6f**' % ours_macro
+        if ours_macro == macro_best else '%.6f' % ours_macro
+    )
+    macro_rank = 1 + sum(value > ours_macro for value in macro_values)
+    lines.append('| **Macro** | %s | %s | **%d/%d** |' % (
+        ' | '.join(macro_cells), ours_macro_rendered, macro_rank,
+        len(methods) + 1,
+    ))
+    return lines
+
+
+def cold_external_delta_table(
+        title, external_rows, external_metadata, schpt_summary, datasets):
+    methods = external_metadata['methods']
+    reference = external_metadata['reference_method']
+    external_index = {
+        (row['dataset'], row['method']): row for row in external_rows
+    }
+    ours_index = {
+        canonical_dataset_name(row['dataset']): row
+        for row in schpt_summary['rows']
+    }
+    lines = [
+        '## %s' % title,
+        '',
+        '| 数据集 | Ours-full AUPR | %s AUPR | 相对统一基线 | '
+        '每库最佳外部基线 | 相对每库最佳 |' % reference,
+        '|---|---:|---:|---:|---:|---:|',
+    ]
+    macro_ours = 0.0
+    macro_reference = 0.0
+    macro_best = 0.0
+    for dataset in datasets:
+        ours = ours_index[dataset]['candidate_metrics']['AUPR']
+        reference_value = external_index[(dataset, reference)]['AUPR']
+        best_method = max(
+            methods, key=lambda method: external_index[(dataset, method)]['AUPR']
+        )
+        best_value = external_index[(dataset, best_method)]['AUPR']
+        macro_ours += ours / len(datasets)
+        macro_reference += reference_value / len(datasets)
+        macro_best += best_value / len(datasets)
+        lines.append(
+            '| %s | %.6f | %.6f | %+.6f | %s (%.6f) | %+.6f |'
+            % (
+                dataset, ours, reference_value, ours - reference_value,
+                best_method, best_value, ours - best_value,
+            )
+        )
+    lines.extend([
+        '| **Macro** | **%.6f** | **%.6f** | **%+.6f** | **%.6f** | '
+        '**%+.6f** |' % (
+            macro_ours, macro_reference, macro_ours - macro_reference,
+            macro_best, macro_ours - macro_best,
+        ),
+        '',
+        'Ours-full 的四库 macro AUPR 高于统一的最强单一外部基线 `%s`，'
+        '但逐库只在 TCMSP 和 ETCM2.0-mention10 排名第一；TCM-Suite 与 '
+        'SymMap2.0 分别落后各自最佳外部基线。每库最佳列仅作描述性上界，'
+        '不能当作一个预先固定的单一比较方法。' % reference,
+    ])
+    return lines
+
+
 def build_markdown(
         manifest, random_rows, cold_rows, calibrated_rows,
-        external_rows=None, support_state_summary=None, schpt_summary=None):
+        external_rows=None, support_state_summary=None, schpt_summary=None,
+        cold_external_rows=None, cold_external_metadata=None):
     datasets = manifest['datasets']
     random_methods = [item['method'] for item in manifest['random_edge']['sources']]
     cold_methods = [
@@ -546,6 +721,7 @@ def build_markdown(
         if item.get('calibrated', True)
     ]
     external_rows = external_rows or []
+    cold_external_rows = cold_external_rows or []
     external_methods = [
         item['method']
         for item in manifest.get('external_same_input', {}).get('methods', [])
@@ -656,6 +832,21 @@ def build_markdown(
             schpt_summary,
         ))
         section += 1
+    if cold_external_rows and schpt_summary is not None:
+        lines.extend([''])
+        lines.extend(cold_external_aupr_table(
+            '%d. Compound cold-start 外部基线 AUPR 比较' % section,
+            cold_external_rows, cold_external_metadata,
+            schpt_summary, datasets,
+        ))
+        section += 1
+        lines.extend([''])
+        lines.extend(cold_external_delta_table(
+            '%d. Ours-full 相对冷启动外部基线' % section,
+            cold_external_rows, cold_external_metadata,
+            schpt_summary, datasets,
+        ))
+        section += 1
     lines.extend([
         '',
         '## %d. 解释边界' % section,
@@ -680,12 +871,16 @@ def build_markdown(
         '结论来自预注册的 16 个新 outer units，不能混写为 20 单元预注册 Gate。',
         '- SCHPT 四库平均 AUPR 增量和 17/20 正向 folds 通过预注册 Gate；'
         'TCM-Suite 的 fold 异质性必须在讨论中披露。',
+        '- 冷启动外部比较中，Ours-full 的 macro AUPR 排名第一，但只在 '
+        'TCMSP 和 ETCM2.0 mention10 逐库排名第一；不得声称四库全部最优。',
         '',
         '## %d. 冻结来源' % (section + 1),
         '',
     ])
     seen = []
-    for row in random_rows + external_rows + cold_rows + calibrated_rows:
+    for row in (
+            random_rows + external_rows + cold_rows + calibrated_rows
+            + cold_external_rows):
         if row['source'] not in seen:
             seen.append(row['source'])
     if (
@@ -711,6 +906,7 @@ def generate(manifest_path, output_path):
     cold_rows, calibrated_rows = collect_cold_start(manifest)
     support_state_summary = collect_support_state_five_unit(manifest)
     schpt_summary = collect_schpt_full(manifest)
+    cold_external_rows, cold_external_metadata = collect_cold_external(manifest)
     output_path = repository_path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
@@ -722,6 +918,8 @@ def generate(manifest_path, output_path):
             external_rows=external_rows,
             support_state_summary=support_state_summary,
             schpt_summary=schpt_summary,
+            cold_external_rows=cold_external_rows,
+            cold_external_metadata=cold_external_metadata,
         ),
         encoding='utf-8',
     )

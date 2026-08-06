@@ -160,7 +160,29 @@
 
 Ours-full 使用 `Hctx-P + SDIS + SCHPT`。Baseline 使用相同 seed、compound cold-start folds、Hctx-P、SDIS 和 inner-validation AUPR 早停；唯一方法差异是 SCHPT 以支持度校准 LOCO 药材靶点原型替换 compound C-P PageRank。预注册 Gate 全部通过。TCM-Suite 仅 `2/5` folds 为正，因此该结果支持跨库总体增益，不支持逐 fold 单调提升主张。
 
-## 13. 解释边界
+## 13. Compound cold-start 外部基线 AUPR 比较
+
+| 数据集 | Dual-HGNN-CTI | LightGCN-CTI | R-GCN-CTI | HGT-CTI | Ours-full | 排名 |
+|---|---:|---:|---:|---:|---:|---:|
+| TCM-Suite | **0.729257 (±0.026157)** | 0.568966 (±0.010352) | 0.670161 (±0.028661) | 0.696228 (±0.066732) | 0.721718 (±0.017988) | 2/5 |
+| TCMSP | 0.939348 (±0.002513) | 0.662029 (±0.016537) | 0.910556 (±0.009702) | 0.934128 (±0.006916) | **0.957323 (±0.002676)** | 1/5 |
+| SymMap2.0 | 0.830540 (±0.014266) | 0.595482 (±0.016050) | 0.812299 (±0.026080) | **0.839690 (±0.012176)** | 0.837607 (±0.009055) | 2/5 |
+| ETCM2.0 mention10 | 0.910730 (±0.003993) | 0.608434 (±0.010306) | 0.809541 (±0.012075) | 0.846547 (±0.010724) | **0.913655 (±0.005501)** | 1/5 |
+| **Macro** | 0.852469 | 0.608728 | 0.800639 | 0.829148 | **0.857576** | **1/5** |
+
+## 14. Ours-full 相对冷启动外部基线
+
+| 数据集 | Ours-full AUPR | Dual-HGNN-CTI AUPR | 相对统一基线 | 每库最佳外部基线 | 相对每库最佳 |
+|---|---:|---:|---:|---:|---:|
+| TCM-Suite | 0.721718 | 0.729257 | -0.007539 | Dual-HGNN-CTI (0.729257) | -0.007539 |
+| TCMSP | 0.957323 | 0.939348 | +0.017975 | Dual-HGNN-CTI (0.939348) | +0.017975 |
+| SymMap2.0 | 0.837607 | 0.830540 | +0.007067 | HGT-CTI (0.839690) | -0.002083 |
+| ETCM2.0 mention10 | 0.913655 | 0.910730 | +0.002925 | Dual-HGNN-CTI (0.910730) | +0.002925 |
+| **Macro** | **0.857576** | **0.852469** | **+0.005107** | **0.854756** | **+0.002819** |
+
+Ours-full 的四库 macro AUPR 高于统一的最强单一外部基线 `Dual-HGNN-CTI`，但逐库只在 TCMSP 和 ETCM2.0-mention10 排名第一；TCM-Suite 与 SymMap2.0 分别落后各自最佳外部基线。每库最佳列仅作描述性上界，不能当作一个预先固定的单一比较方法。
+
+## 15. 解释边界
 
 - 随机边主配置为 `Hctx-P + CHCR`；CHCR 不进入 cold-start 主配置。
 - 4 种外部方法是共享匿名拓扑输入和 BCE 监督的适配基线，不是原论文属性模型的原样复现。
@@ -172,8 +194,9 @@ Ours-full 使用 `Hctx-P + SDIS + SCHPT`。Baseline 使用相同 seed、compound
 - NoContext 未执行事后阈值校准；其固定 `0.5` 分类指标仅用于完整披露，不与已校准的 Hctx-P/SDIS 分类指标混合比较。
 - 支持状态五单元表中的历史 `c0p0` 只用于描述性汇总；V3 的确认性结论来自预注册的 16 个新 outer units，不能混写为 20 单元预注册 Gate。
 - SCHPT 四库平均 AUPR 增量和 17/20 正向 folds 通过预注册 Gate；TCM-Suite 的 fold 异质性必须在讨论中披露。
+- 冷启动外部比较中，Ours-full 的 macro AUPR 排名第一，但只在 TCMSP 和 ETCM2.0 mention10 逐库排名第一；不得声称四库全部最优。
 
-## 14. 冻结来源
+## 16. 冻结来源
 
 - `/home/zry/workspace/HDCTI/results/batch_runs/no_dense_hctx_ablation_20260722_164221/results.tsv`
 - `/home/zry/workspace/HDCTI/results/batch_runs/no_dense_chcr_full_20260717_171403/results.tsv`
@@ -182,5 +205,6 @@ Ours-full 使用 `Hctx-P + SDIS + SCHPT`。Baseline 使用相同 seed、compound
 - `/home/zry/workspace/HDCTI/results/batch_runs/cold_start_hctx_ablation_20260730_133133/results.tsv`
 - `/home/zry/workspace/HDCTI/results/batch_runs/sdis_full_20260718_212240/results.tsv`
 - `/home/zry/workspace/HDCTI/results/batch_runs/sdis_full_20260718_212240/calibration/results.tsv`
+- `/home/zry/workspace/HDCTI/results/batch_runs/cold_start_external_baselines_full_20260806_134426/results.tsv`
 - `/home/zry/workspace/HDCTI/results/batch_runs/frozen_base_hctx_router_repeated_outer_20260804_132807/five_unit_summary.json`
 - `/home/zry/workspace/HDCTI/results/batch_runs/schpt_full_20260805_152323/summary.json`

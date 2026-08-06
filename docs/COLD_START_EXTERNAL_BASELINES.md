@@ -58,6 +58,30 @@ HDCTI_BATCH_DIR=results/batch_runs/cold_start_external_baselines_full_<timestamp
 
 已成功解析的作业会跳过，失败或未完成的作业会重新运行。
 
+## 冻结结果
+
+正式 16 作业已于 2026-08-06 完成：
+
+```text
+results/batch_runs/cold_start_external_baselines_full_20260806_134426/
+```
+
+Ours-full 的四库 AUPR 为 `0.721718 / 0.957323 / 0.837607 / 0.913655`，
+四库 macro 为 `0.857576`。外部基线中，统一 macro 最强的是
+Dual-HGNN-CTI（`0.852469`），Ours-full 相对其 macro 提高 `0.005107`。
+
+逐库结果并非全部第一：
+
+| 数据集 | Ours-full | 最佳外部基线 | 差值 |
+|---|---:|---:|---:|
+| TCM-Suite | 0.721718 | Dual-HGNN-CTI 0.729257 | -0.007539 |
+| TCMSP | 0.957323 | Dual-HGNN-CTI 0.939348 | +0.017975 |
+| SymMap2.0 | 0.837607 | HGT-CTI 0.839690 | -0.002083 |
+| ETCM2.0-mention10 | 0.913655 | Dual-HGNN-CTI 0.910730 | +0.002925 |
+
+因此论文可主张 Ours-full 取得最高四库 macro AUPR，并在 TCMSP 与 ETCM2.0
+上排名第一；不能主张在四个数据集上全部最优。
+
 ## 论文使用边界
 
 1. 该表用于回答“同一侧信息和同一冷启动划分下，SCHPT 是否优于常用图基线”。

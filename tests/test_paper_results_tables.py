@@ -64,6 +64,7 @@ class PaperResultsTablesTest(unittest.TestCase):
                     {'method': 'SDIS'},
                 ]
             },
+            'compound_cold_start_external': {},
         }
         random_rows = [
             record(dataset, method, 0.8 + index * 0.01)
@@ -87,6 +88,17 @@ class PaperResultsTablesTest(unittest.TestCase):
                 ('Dual', 'LightGCN', 'R-GCN', 'HGT')
             )
         ]
+        cold_external_rows = [
+            record(dataset, method, 0.68 + index * 0.01)
+            for dataset in datasets
+            for index, method in enumerate(
+                ('Dual', 'LightGCN', 'R-GCN', 'HGT')
+            )
+        ]
+        cold_external_metadata = {
+            'methods': ['Dual', 'LightGCN', 'R-GCN', 'HGT'],
+            'reference_method': 'Dual',
+        }
         support_state_summary = {
             'overall_macro_aupr_delta': {'mean': 0.1, 'std': 0.02},
             'datasets': [
@@ -116,6 +128,7 @@ class PaperResultsTablesTest(unittest.TestCase):
                     'dataset': dataset,
                     'baseline_metrics': {'AUC': 0.7, 'AUPR': 0.7},
                     'candidate_metrics': {'AUC': 0.72, 'AUPR': 0.72},
+                    'candidate_fold_aupr': [0.70, 0.71, 0.72, 0.73, 0.74],
                     'outer_aupr_delta': 0.02,
                     'positive_fold_count': 4,
                 }
@@ -131,6 +144,8 @@ class PaperResultsTablesTest(unittest.TestCase):
             external_rows=external_rows,
             support_state_summary=support_state_summary,
             schpt_summary=schpt_summary,
+            cold_external_rows=cold_external_rows,
+            cold_external_metadata=cold_external_metadata,
         )
 
         self.assertIn('普通 Strict 随机边五折', markdown)
@@ -144,6 +159,9 @@ class PaperResultsTablesTest(unittest.TestCase):
         self.assertIn('20 单元总体 Macro-AUPR 增量', markdown)
         self.assertIn('最终 Ours-full compound cold-start 五折确认', markdown)
         self.assertIn('Hctx-P + SDIS + SCHPT', markdown)
+        self.assertIn('Compound cold-start 外部基线 AUPR 比较', markdown)
+        self.assertIn('Ours-full 相对冷启动外部基线', markdown)
+        self.assertIn('macro AUPR 排名第一', markdown)
         self.assertIn('**+0.010000**', markdown)
         self.assertNotIn('NoContext 完整五折尚不存在', markdown)
 
