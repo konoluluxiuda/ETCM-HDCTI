@@ -1,3 +1,4 @@
+# Derived from https://github.com/tong87-bio/HDCTI (MIT License).
 import os.path
 class ModelConf(object):
     def __init__(self,fileName):
@@ -65,4 +66,3 @@ class OptionConf(object):
 
     def contains(self,key):
         return key in self.options
-

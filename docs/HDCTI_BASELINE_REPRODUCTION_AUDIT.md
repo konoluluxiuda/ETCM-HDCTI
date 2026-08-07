@@ -199,7 +199,7 @@ R-GCN：使用 H-C、fold 训练 C-P、P-D 异构图
 
 四库均稳定完成，适配可行性通过。该结果只决定模型是否进入正式五折，不作为
 论文性能结论。实现边界和运行命令见
-[LIGHTGCN_CTI_BASELINE.md](LIGHTGCN_CTI_BASELINE.md)。
+[外部同输入基线正式五折运行说明](EXTERNAL_BASELINE_FULL_RUN.md)。
 
 截至 2026-07-28，第三个基线 `R-GCN-CTI` 已实现并完成四库单折 pilot。它把
 H-C、inner-train positive C-P 和 P-D 组织成四类节点、六类有向关系的异构图，
@@ -214,7 +214,7 @@ validation 与 outer-test 正边。
 | ETCM2.0 mention10 | 0.974539 | 2 | 35.1s |
 
 四库均稳定完成，适配可行性通过。结果只决定进入正式五折，不作为最终性能
-结论，详见 [RGCN_CTI_BASELINE.md](RGCN_CTI_BASELINE.md)。
+结论，详见[外部同输入基线正式五折运行说明](EXTERNAL_BASELINE_FULL_RUN.md)。
 
 截至 2026-07-28，第四个基线 `HGT-CTI` 已完成实现、测试和四库冻结单折
 pilot。它在与 R-GCN 相同的四类节点、六类有向
@@ -233,7 +233,7 @@ pilot。它在与 R-GCN 相同的四类节点、六类有向
 覆盖，准确命名为 `HGT-CTI (same-input sparse attention adaptation)`。
 其 pilot 在四库均低于 R-GCN，尤其 ETCM 差距较大；不得据此进行数据库特定
 调参。已机械生成独立正式五折配置，正式结果完成前不进入论文结果表。详见
-[HGT_CTI_BASELINE.md](HGT_CTI_BASELINE.md)。
+[外部同输入基线正式五折运行说明](EXTERNAL_BASELINE_FULL_RUN.md)。
 
 ### 步骤 B 正式五折结果
 

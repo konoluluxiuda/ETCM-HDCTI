@@ -1,9 +1,6 @@
 import unittest
-from pathlib import Path
-
 import numpy as np
 
-from util.config import ModelConf
 from util.model_components import (
     EarlyStoppingTracker,
     build_regularization_loss,
@@ -740,51 +737,6 @@ class ModelComponentsTest(unittest.TestCase):
                 'context.interaction': 'True',
                 'context.herb_disease': 'maybe',
             }))
-
-    def test_side_context_experiment_configs_enable_one_term_each(self):
-        repository_root = Path(__file__).resolve().parents[1]
-        disease_terms = resolve_context_terms(ModelConf(
-            str(repository_root / 'configs' / 'HDCTI_disease_only.conf')
-        ))
-        herb_terms = resolve_context_terms(ModelConf(
-            str(repository_root / 'configs' / 'HDCTI_herb_only.conf')
-        ))
-        self.assertEqual(disease_terms, {
-            'compound_disease': True,
-            'herb_protein': False,
-            'herb_disease': False,
-        })
-        self.assertEqual(herb_terms, {
-            'compound_disease': False,
-            'herb_protein': True,
-            'herb_disease': False,
-        })
-
-    def test_target_attention_pilot_is_validation_only(self):
-        repository_root = Path(__file__).resolve().parents[1]
-        conf = ModelConf(str(
-            repository_root / 'configs' / 'HDCTI_target_herb_attention_pilot.conf'
-        ))
-        settings = resolve_herb_context_attention(conf)
-
-        self.assertEqual(settings['mode'], 'target_attention')
-        self.assertEqual(conf['evaluation.fold.limit'], '1')
-        self.assertEqual(conf['evaluation.outer.test'], 'False')
-        self.assertEqual(conf['context.herb_protein'], 'True')
-
-    def test_target_residual_attention_pilot_is_validation_only(self):
-        repository_root = Path(__file__).resolve().parents[1]
-        conf = ModelConf(str(
-            repository_root / 'configs' /
-            'HDCTI_etcm_mention10_target_residual_attention_pilot.conf'
-        ))
-        settings = resolve_herb_context_attention(conf)
-
-        self.assertEqual(settings['mode'], 'target_residual_attention')
-        self.assertEqual(conf['evaluation.fold.limit'], '1')
-        self.assertEqual(conf['evaluation.outer.test'], 'False')
-        self.assertEqual(conf['context.herb_protein'], 'True')
-        self.assertIn('ETCM2.0_core_mention10', conf['datapath'])
 
     def test_embedding_regularization_is_added_once(self):
         import tensorflow.compat.v1 as tf

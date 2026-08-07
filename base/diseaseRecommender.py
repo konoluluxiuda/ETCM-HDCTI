@@ -1,3 +1,4 @@
+# Derived from https://github.com/tong87-bio/HDCTI (MIT License).
 from base.recommender import Recommender
 from util import config
 import numpy as np
@@ -29,6 +30,5 @@ class diseaseRecommender(Recommender):
 
     def initModel(self):
         pass
-
 
 

@@ -1,3 +1,5 @@
+# Derived from https://github.com/tong87-bio/HDCTI (MIT License).
+# Modified to support explicit experiment configuration paths and fixed seeds.
 from util.config import ModelConf
 from util.gpu import configure_cuda_environment
 from util.reproducibility import seed_python_numpy

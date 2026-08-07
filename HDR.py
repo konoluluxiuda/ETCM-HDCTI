@@ -1,3 +1,5 @@
+# Derived from https://github.com/tong87-bio/HDCTI (MIT License).
+# Modified for reproducible strict split orchestration and inner validation.
 from util.config import OptionConf
 from util.dataSplit import *
 from util.support_complete_split import (

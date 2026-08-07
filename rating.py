@@ -1,3 +1,5 @@
+# Derived from https://github.com/tong87-bio/HDCTI (MIT License).
+# Modified for multi-dataset relation resolution and strict support metadata.
 import numpy as np
 from util.config import ModelConf,OptionConf
 import random

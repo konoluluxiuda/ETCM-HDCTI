@@ -12,11 +12,11 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
-from tools.summarize_schpt_pilot import METADATA_PATTERN  # noqa: E402
-
-
 METRICS = ('AUC', 'AUPR', 'Recall', 'Precision', 'F1-score')
 SUMMARY_MARKER = 'The result of 5-fold cross validation:'
+METADATA_PATTERN = re.compile(
+    r'^Herb prototype metadata:\s*(.+)$', re.MULTILINE
+)
 
 
 def _metric_pattern(metric, require_space):

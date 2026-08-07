@@ -1,3 +1,4 @@
+# Derived from https://github.com/tong87-bio/HDCTI (MIT License).
 from .diseaseRecommender import diseaseRecommender
 from random import shuffle,randint,choice
 import pandas as pd

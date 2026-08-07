@@ -62,14 +62,60 @@ def export_bundle(plan_path=DEFAULT_PLAN):
     return manifest_path, records
 
 
+def verify_bundle(plan_path=DEFAULT_PLAN):
+    plan_path = repository_path(plan_path)
+    plan = json.loads(plan_path.read_text(encoding='utf-8'))
+    if plan.get('schema_version') != 1:
+        raise ValueError('Unsupported paper result bundle schema.')
+    bundle_dir = repository_path(plan['bundle'])
+    manifest_path = bundle_dir / 'MANIFEST.json'
+    manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+    if manifest.get('schema_version') != 1:
+        raise ValueError('Unsupported paper result manifest schema.')
+    if manifest.get('source_plan_sha256') != sha256_file(plan_path):
+        raise ValueError('Paper result source plan hash mismatch.')
+
+    expected = {
+        item['destination']: (item['name'], item['sha256'])
+        for item in plan.get('sources', [])
+    }
+    records = manifest.get('files', [])
+    if len(records) != len(expected):
+        raise ValueError('Paper result bundle file count mismatch.')
+    for record in records:
+        destination = Path(record['path']).name
+        if destination not in expected:
+            raise ValueError('Unexpected paper result file: %s' % destination)
+        expected_name, expected_hash = expected[destination]
+        if record['name'] != expected_name or record['sha256'] != expected_hash:
+            raise ValueError('Paper result manifest entry mismatch: %s' % destination)
+        artifact = repository_path(record['path'])
+        if not artifact.is_file():
+            raise FileNotFoundError('Missing paper result artifact: %s' % artifact)
+        if sha256_file(artifact) != expected_hash:
+            raise ValueError('Paper result artifact hash mismatch: %s' % artifact)
+        if artifact.stat().st_size != int(record['size_bytes']):
+            raise ValueError('Paper result artifact size mismatch: %s' % artifact)
+    return manifest_path, records
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Export the compact, hash-verified paper result bundle.'
     )
     parser.add_argument('--plan', default=str(DEFAULT_PLAN))
+    parser.add_argument(
+        '--verify-only',
+        action='store_true',
+        help='verify the published bundle without requiring raw result sources',
+    )
     args = parser.parse_args()
-    manifest_path, records = export_bundle(args.plan)
-    print('Exported %d frozen result files.' % len(records))
+    if args.verify_only:
+        manifest_path, records = verify_bundle(args.plan)
+        print('Verified %d frozen result files.' % len(records))
+    else:
+        manifest_path, records = export_bundle(args.plan)
+        print('Exported %d frozen result files.' % len(records))
     print('Bundle manifest: %s' % manifest_path)
 
 

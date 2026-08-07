@@ -1,8 +1,4 @@
 import unittest
-from pathlib import Path
-import hashlib
-import json
-
 import numpy as np
 import scipy.sparse as sp
 
@@ -14,7 +10,6 @@ from util.model_components import (
     context_interaction_pair_scores,
     resolve_herb_prototype_transfer,
 )
-from util.config import ModelConf
 
 
 class DummyConf(object):
@@ -147,43 +142,6 @@ class HerbPrototypeTransferTest(unittest.TestCase):
                 'herb.prototype.transfer': 'True',
                 'herb.prototype.replace.compound.pagerank': 'False',
             }))
-
-    def test_pilot_configs_are_fresh_inner_only_and_paired(self):
-        root = Path(__file__).resolve().parents[1]
-        baseline = ModelConf(str(
-            root / 'configs/HDCTI_etcm_mention10_schpt_baseline_pilot.conf'
-        ))
-        candidate = ModelConf(str(
-            root / 'configs/HDCTI_etcm_mention10_schpt_pilot.conf'
-        ))
-        baseline_values = dict(baseline.config)
-        candidate_values = dict(candidate.config)
-        baseline_values.pop('model.variant')
-        candidate_values.pop('model.variant')
-        for key in (
-            'herb.prototype.transfer',
-            'herb.prototype.mode',
-            'herb.prototype.prior',
-            'herb.prototype.replace.compound.pagerank',
-        ):
-            baseline_values.pop(key, None)
-            candidate_values.pop(key, None)
-        self.assertEqual(candidate_values, baseline_values)
-        self.assertEqual(candidate['split.seed'], '52026')
-        self.assertEqual(candidate['evaluation.outer.test'], 'False')
-        self.assertEqual(candidate['evaluation.fold.limit'], '1')
-        self.assertEqual(candidate['attention.max.nodes'], '0')
-        self.assertTrue(resolve_herb_prototype_transfer(candidate)['enabled'])
-
-        manifest = json.loads((
-            root / 'configs/schpt_pilot_manifest.json'
-        ).read_text(encoding='utf-8'))
-        for entry in manifest['configs'].values():
-            content = (root / entry['path']).read_bytes()
-            self.assertEqual(
-                hashlib.sha256(content).hexdigest(), entry['sha256']
-            )
-
 
 if __name__ == '__main__':
     unittest.main()

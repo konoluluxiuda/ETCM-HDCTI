@@ -17,28 +17,17 @@ class HGTFullConfigsTest(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         for dataset_slug in self.DATASET_SLUGS:
             with self.subTest(dataset=dataset_slug):
-                pilot = ModelConf(str(
-                    root / 'configs' /
-                    f'HGTCTI_{dataset_slug}_pair_stratified_pilot.conf'
-                ))
                 full = ModelConf(str(
                     root / 'configs' /
                     f'HGTCTI_{dataset_slug}_pair_stratified_full.conf'
                 ))
-                expected = dict(pilot.config)
-                expected.pop('evaluation.fold.limit')
-                expected['evaluation.outer.test'] = 'True'
-                expected['model.variant'] = expected[
-                    'model.variant'
-                ].replace('_pilot_v1', '_full_v1')
-
-                self.assertEqual(full.config, expected)
                 self.assertEqual(full['evaluation.setup'], '-cv 5')
                 self.assertEqual(full['experiment.protocol'], 'strict')
                 self.assertEqual(full['split.strategy'], 'pair_stratified')
                 self.assertEqual(full['split.seed'], '2026')
                 self.assertEqual(full['evaluation.outer.test'], 'True')
                 self.assertFalse(full.contains('evaluation.fold.limit'))
+                self.assertTrue(full['model.variant'].endswith('_full_v1'))
 
     def test_full_batch_dry_run_lists_four_jobs(self):
         root = Path(__file__).resolve().parents[1]

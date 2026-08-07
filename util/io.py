@@ -1,3 +1,5 @@
+# Derived from https://github.com/tong87-bio/HDCTI (MIT License).
+# Dataset file resolution and negative handling were extended here.
 import os.path
 from os import remove
 from re import split

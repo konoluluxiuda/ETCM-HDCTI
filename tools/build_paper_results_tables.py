@@ -739,6 +739,12 @@ def build_markdown(
         '',
         '> 注意：五折标准差表示 fold 差异，不等同于多随机初始化标准差。',
         '',
+        '> **2026-08-06 状态更新**：本文件中的 AUC/AUPR 均来自固定采样 pair 协议，',
+        '> 仍可用于复现 HDCTI 式历史比较，但不能解释为完整候选靶点检索结果。新增的',
+        '> 四库全候选首折审计中，Ours 的 MRR 和 Recall@20 均低于同折最佳非神经',
+        '> 启发式；投稿主结果暂缓冻结，详见',
+        '> [全候选靶点排名 Gate](FULL_CANDIDATE_RANKING_GATE.md)。',
+        '',
     ]
     lines.extend(metric_table(
         '1. 普通 Strict 随机边五折', random_rows,

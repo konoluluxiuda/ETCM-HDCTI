@@ -1,3 +1,4 @@
+# Derived from https://github.com/tong87-bio/HDCTI (MIT License).
 import logging
 import os
 class Log(object):

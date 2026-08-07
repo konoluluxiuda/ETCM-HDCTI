@@ -1,4 +1,6 @@
-#coding:utf8
+# coding:utf8
+# Derived from https://github.com/tong87-bio/HDCTI (MIT License).
+# This repository adds strict fold-local evaluation, Hctx-P, SDIS, and SCHPT.
 import json
 import os
 from util.gpu import configure_cuda_environment

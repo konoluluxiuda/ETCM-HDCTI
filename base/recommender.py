@@ -1,3 +1,5 @@
+# Derived from https://github.com/tong87-bio/HDCTI (MIT License).
+# Evaluation metrics and strict checkpoint handling were extended here.
 import tensorflow.compat.v1 as tf
 tf.disable_v2_behavior()
 from rating import Rating

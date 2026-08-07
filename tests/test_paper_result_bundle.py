@@ -4,13 +4,18 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from tools.export_paper_result_bundle import export_bundle
+from tools.export_paper_result_bundle import export_bundle, verify_bundle
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class PaperResultBundleTest(unittest.TestCase):
+    def test_published_bundle_verifies_without_raw_results(self):
+        manifest_path, records = verify_bundle()
+        self.assertTrue(manifest_path.is_file())
+        self.assertEqual(len(records), 10)
+
     def test_exported_bundle_matches_all_frozen_hashes(self):
         with tempfile.TemporaryDirectory() as temporary_dir:
             temporary = Path(temporary_dir)

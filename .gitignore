@@ -1,13 +1,32 @@
-
-# Local datasets
+# Local datasets and archives
 dataset/
+*.zip
 
+# Training outputs
 saved_model/
 results/
 !paper_artifacts/results/
 !paper_artifacts/results/**
 log/
+
+# Local manuscript and internal review material
+manuscript/
+
+# Python and test caches
 __pycache__/
-base/__pycache__/
-util/__pycache__/
-*.pyc
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE and operating-system files
+.vscode/
+.idea/
+.DS_Store
+
+# Local environments and scratch files
+.env
+.venv/
+venv/
+*.tmp
+*.bak
