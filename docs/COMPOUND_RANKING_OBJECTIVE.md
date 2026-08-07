@@ -76,3 +76,17 @@ python tools/audit_compound_ranking_headroom.py \
 | 8-15 | 832 | 1.39% | 1.32% |
 
 这表明随机边 inner-validation 的总体排序已经接近饱和，剩余问题主要属于未见/低度 compound，而非所有 compound 的统一排序目标。后续若继续模型创新，应先建立 compound cold-start 或 low-degree 专门划分，不应根据这 147 个低度节点事后开启 degree-specific ranking loss。
+
+## 2026-08-06：Cold-start 全候选分支重新开放
+
+上述 No-Go 只适用于随机折的 1:1 采样候选。新的 compound cold-start
+inner-validation 全候选审计严格不读取 outer-test，并在四库第 1 折均发现模型
+明显低于折内非神经启发式：MRR 差值为
+`-0.248574/-0.094332/-0.158062/-0.075583`，Recall@20 差值为
+`-0.259891/-0.066558/-0.193093/-0.109526`。因此旧结论不再阻止
+cold-start 专用 ranking Pilot。
+
+本次只开放一个冻结编码器、固定负例构成和固定 pairwise logistic 目标的 Pilot；
+它不复活随机折全局 ranking loss，也不允许根据 outer-test 搜索 margin、温度或
+loss weight。协议与 Gate 见
+[Inner-Validation 全候选排名审计](INNER_FULL_CANDIDATE_RANKING_AUDIT.md)。

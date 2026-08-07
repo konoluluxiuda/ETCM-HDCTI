@@ -1,0 +1,50 @@
+{
+  "protocol": "frozen_full_candidate_ranking_gate_v1",
+  "fold_count": 5,
+  "split_seed": 52026,
+  "prior_strength": 1.0,
+  "ks": [10, 20, 50],
+  "export_top": 20,
+  "schpt_results": "paper_artifacts/results/schpt_full.json",
+  "schpt_manifest": "configs/schpt_full_manifest.json",
+  "datasets": [
+    {
+      "name": "TCM-Suite",
+      "slug": "tcmsuite",
+      "config": "configs/HDCTI_tcmsuite_schpt_full.conf",
+      "hc_path": "dataset/TCMsuite/H_C.txt",
+      "pd_path": "dataset/TCMsuite/P_D.txt",
+      "split_dir": "dataset/TCMsuite/splits/strict_compound_cold_start_seed_52026_k5"
+    },
+    {
+      "name": "TCMSP",
+      "slug": "tcmsp",
+      "config": "configs/HDCTI_tcmsp_schpt_full.conf",
+      "hc_path": "dataset/TCMSP/herb-compound.txt",
+      "pd_path": "dataset/TCMSP/target-disease.txt",
+      "split_dir": "dataset/TCMSP/splits/strict_compound_cold_start_seed_52026_k5"
+    },
+    {
+      "name": "SymMap2.0",
+      "slug": "symmap",
+      "config": "configs/HDCTI_symmap_schpt_full.conf",
+      "hc_path": "dataset/Symmap/HI.txt",
+      "pd_path": "dataset/Symmap/TD.txt",
+      "split_dir": "dataset/Symmap/splits/strict_compound_cold_start_seed_52026_k5"
+    },
+    {
+      "name": "ETCM2.0-mention10",
+      "slug": "etcm_mention10",
+      "config": "configs/HDCTI_etcm_mention10_schpt_full.conf",
+      "hc_path": "dataset/ETCM2.0_core_mention10/H_C.txt",
+      "pd_path": "dataset/ETCM2.0_core_mention10/P_D.txt",
+      "split_dir": "dataset/ETCM2.0_core_mention10/splits/strict_compound_cold_start_seed_52026_k5"
+    }
+  ],
+  "gate": {
+    "minimum_macro_mrr_delta_vs_best_heuristic": 0.0,
+    "minimum_macro_recall_at_20_delta_vs_best_heuristic": 0.0,
+    "minimum_dataset_mrr_wins": 3,
+    "minimum_dataset_mrr_delta": -0.02
+  }
+}

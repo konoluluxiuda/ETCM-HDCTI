@@ -1,0 +1,13 @@
+{
+  "protocol": "inner_validation_full_candidate_headroom_gate_v1",
+  "parent_manifest": "configs/full_candidate_ranking_gate.json",
+  "evaluation_split": "validation",
+  "folds": [1],
+  "ks": [10, 20, 50],
+  "export_top": 20,
+  "gate": {
+    "minimum_dataset_count_with_headroom": 3,
+    "minimum_mrr_gap": 0.02,
+    "minimum_recall_at_20_gap": 0.02
+  }
+}

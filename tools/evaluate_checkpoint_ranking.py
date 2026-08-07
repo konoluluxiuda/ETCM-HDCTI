@@ -27,6 +27,15 @@ def parse_args():
     parser.add_argument('--fold', type=int, default=1, help='One-based strict outer fold (default: 1).')
     parser.add_argument('--ks', type=int, nargs='+', default=[10, 20, 50])
     parser.add_argument('--export-top', type=int, default=20)
+    parser.add_argument(
+        '--evaluation-split',
+        choices=('outer', 'validation'),
+        default='outer',
+        help=(
+            'Evaluate the outer test fold or the inner-validation split. '
+            'Validation mode never scores outer-test records.'
+        ),
+    )
     parser.add_argument('--output-dir', help='Output directory; a timestamped path is used by default.')
     parser.add_argument(
         '--dry-run', action='store_true',
@@ -130,6 +139,18 @@ def main():
             validation_seed_base + args.fold - 1,
         )
 
+    if args.evaluation_split == 'validation':
+        if not validation:
+            raise ValueError(
+                '--evaluation-split validation requires an enabled, non-empty '
+                'inner-validation split.'
+            )
+        ranking_train = model_train
+        ranking_test = validation
+    else:
+        ranking_train = outer_train
+        ranking_test = outer_test
+
     checkpoint_prefix, data_files = normalize_checkpoint(args.checkpoint)
     split_audit = {
         'strict_manifest': split_manifest.get('assignments_path'),
@@ -145,14 +166,21 @@ def main():
         'validation_sha256': records_sha256(validation) if validation else None,
         'validation_info': validation_info,
         'training_negative_settings': resolve_negative_sampling(conf),
+        'evaluation_split': args.evaluation_split,
+        'outer_test_scored': args.evaluation_split == 'outer',
+        'ranking_train_records': len(ranking_train),
+        'ranking_train_sha256': records_sha256(ranking_train),
+        'ranking_test_records': len(ranking_test),
+        'ranking_test_sha256': records_sha256(ranking_test),
     }
     print('Pure-inference checkpoint evaluation')
     print('  config: %s' % config_path)
     print('  checkpoint: %s' % checkpoint_prefix)
     print('  strict fold: %d/%d' % (args.fold, fold_count))
-    print('  model graph records: %d; outer test records: %d' % (
-        len(model_train), len(outer_test)
+    print('  model graph records: %d; %s records: %d' % (
+        len(model_train), args.evaluation_split, len(ranking_test)
     ))
+    print('  outer test scored: %s' % (args.evaluation_split == 'outer'))
     print('  training/optimizer steps: disabled')
     if args.dry_run:
         print(json.dumps(split_audit, ensure_ascii=False, indent=2))
@@ -229,16 +257,16 @@ def main():
         return model.predictForPairs(compound_indices, protein_indices)
 
     try:
-        sampled_compounds = [str(row[0]) for row in outer_test]
-        sampled_proteins = [str(row[1]) for row in outer_test]
-        sampled_labels = np.asarray([int(float(row[2]) > 0) for row in outer_test])
+        sampled_compounds = [str(row[0]) for row in ranking_test]
+        sampled_proteins = [str(row[1]) for row in ranking_test]
+        sampled_labels = np.asarray([int(float(row[2]) > 0) for row in ranking_test])
         sampled_logits = np.asarray(
             score_id_pairs(sampled_compounds, sampled_proteins), dtype=np.float64
         )
         sampled_scores = 1.0 / (1.0 + np.exp(-np.clip(sampled_logits, -50, 50)))
         sampled_metrics = {
-            'protocol': 'fixed_strict_sampled_test_pairs',
-            'records': len(outer_test),
+            'protocol': 'fixed_strict_sampled_%s_pairs' % args.evaluation_split,
+            'records': len(ranking_test),
             'positives': int(np.sum(sampled_labels)),
             'negatives': int(len(sampled_labels) - np.sum(sampled_labels)),
             'AUC': float(roc_auc_score(sampled_labels, sampled_scores)),
@@ -250,8 +278,8 @@ def main():
         ]
         ranking = evaluate_fixed_candidate_ranking(
             protein_ids,
-            outer_train,
-            outer_test,
+            ranking_train,
+            ranking_test,
             score_id_pairs,
             ks=args.ks,
             export_top=args.export_top,
@@ -271,7 +299,9 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     report = {
-        'evaluation_type': 'checkpoint_only_pure_inference',
+        'evaluation_type': (
+            'checkpoint_only_pure_inference_%s' % args.evaluation_split
+        ),
         'created_at': datetime.now().astimezone().isoformat(),
         'config': {
             'path': str(config_path),
