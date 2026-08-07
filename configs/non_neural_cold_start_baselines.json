@@ -1,0 +1,33 @@
+{
+  "protocol": "frozen_non_neural_compound_cold_start_baselines_v1",
+  "fold_count": 5,
+  "split_seed": 52026,
+  "prior_strength": 1.0,
+  "ours_results": "paper_artifacts/results/schpt_full.json",
+  "datasets": [
+    {
+      "name": "TCM-Suite",
+      "slug": "tcmsuite",
+      "hc_path": "dataset/TCMsuite/H_C.txt",
+      "split_dir": "dataset/TCMsuite/splits/strict_compound_cold_start_seed_52026_k5"
+    },
+    {
+      "name": "TCMSP",
+      "slug": "tcmsp",
+      "hc_path": "dataset/TCMSP/herb-compound.txt",
+      "split_dir": "dataset/TCMSP/splits/strict_compound_cold_start_seed_52026_k5"
+    },
+    {
+      "name": "SymMap2.0",
+      "slug": "symmap",
+      "hc_path": "dataset/Symmap/HI.txt",
+      "split_dir": "dataset/Symmap/splits/strict_compound_cold_start_seed_52026_k5"
+    },
+    {
+      "name": "ETCM2.0-mention10",
+      "slug": "etcm_mention10",
+      "hc_path": "dataset/ETCM2.0_core_mention10/H_C.txt",
+      "split_dir": "dataset/ETCM2.0_core_mention10/splits/strict_compound_cold_start_seed_52026_k5"
+    }
+  ]
+}
